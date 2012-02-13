@@ -64,6 +64,7 @@ public class VoltZK {
     // Persistent nodes (mostly directories) to create on startup
     public static final String[] ZK_HIERARCHY = {
             root,
+            cluster_metadata,
             mailboxes,
             mailboxes_executionsites,
             mailboxes_initiators,

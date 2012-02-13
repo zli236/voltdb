@@ -985,25 +985,14 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
         }
 
         final ZooKeeper zk = m_messenger.getZK();
-        /*
-         * Publish our cluster metadata, and then retrieve the metadata
-         * for the rest of the cluster
-         */
+
+        // Publish this node's metadata and then retrieve the metadata
         try {
-            zk.create(
-                    VoltZK.cluster_metadata,
-                    null,
-                    Ids.OPEN_ACL_UNSAFE,
-                    CreateMode.PERSISTENT,
-                    new ZKUtil.StringCallback(),
-                    null);
             zk.create(
                     VoltZK.cluster_metadata + m_messenger.getHostId(),
                     getLocalMetadata().getBytes("UTF-8"),
                     Ids.OPEN_ACL_UNSAFE,
-                    CreateMode.EPHEMERAL,
-                    new ZKUtil.StringCallback(),
-                    null);
+                    CreateMode.EPHEMERAL);
         } catch (Exception e) {
             VoltDB.crashLocalVoltDB("Error creating \"/cluster_metadata\" node in ZK", true, e);
         }
