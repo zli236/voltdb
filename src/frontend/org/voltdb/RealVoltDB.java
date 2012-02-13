@@ -35,6 +35,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -62,6 +63,7 @@ import org.voltcore.agreement.ZKUtil;
 
 import org.voltcore.messaging.HostMessenger;
 import org.voltcore.messaging.Mailbox;
+import org.voltdb.iv2.InitiatorMailbox;
 import org.voltdb.VoltDB.START_ACTION;
 import org.voltdb.catalog.Catalog;
 import org.voltdb.catalog.Cluster;
@@ -296,14 +298,14 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
 
             JSONObject topoJson = createTopologyBlob();
 
-            ArrayDeque<Mailbox> siteMailboxes = null;
+            Deque<Mailbox> siteMailboxes = null;
             DtxnInitiatorMailbox initiatorMailbox = null;
             m_faultManager = new FaultDistributor(this);
             try {
                 siteMailboxes = createMailboxesForSites(topoJson);
                 MailboxTracker mailboxTracker = new MailboxTracker(m_messenger.getZK(), m_messenger.getHostId());
                 m_catalogContext.siteTracker.setMailboxTracker(mailboxTracker);
-                initiatorMailbox = createInitiatorMailbox();
+                createMailboxesForInitiators(topoJson);
             } catch (Exception e) {
                 VoltDB.crashLocalVoltDB(e.getMessage(), true, e);
             }
@@ -541,14 +543,8 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
         return mailboxes;
     }
 
-
-    /**
-     * Publishes the HSId of this execution site to ZK
-     * @param zk
-     * @param partitionId
-     * @throws Exception
-     */
-    private void registerExecutionSiteMailbox(long HSId, int partitionId) throws Exception {
+    private void registerExecutionSiteMailbox(long HSId, int partitionId) throws Exception
+    {
         JSONObject jsObj = new JSONObject();
         jsObj.put("HSId", HSId);
         jsObj.put("partitionId", partitionId);
@@ -557,22 +553,24 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
                                    Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
     }
 
-    private DtxnInitiatorMailbox createInitiatorMailbox() throws Exception {
-        Map<Long, Integer> siteMap = new HashMap<Long, Integer>();
-        Set<Long> sites = m_catalogContext.siteTracker.getAllLiveSites();
-        for (long site : sites) {
-            siteMap.put(site, m_catalogContext.siteTracker.getPartitionForSite(site));
+    private Deque<Mailbox> createMailboxesForInitiators(JSONObject topo) throws Exception
+    {
+        Deque<Mailbox> mailboxes = new ArrayDeque<Mailbox>();
+        List<Integer> partitions =
+            ClusterConfig.partitionsForHost(topo, m_messenger.getHostId());
+        for (Integer partition : partitions) {
+            Mailbox mailbox = new InitiatorMailbox(m_messenger, partition);
+            m_messenger.createMailbox(null, mailbox);
+            mailboxes.add(mailbox);
+            registerInitiatorMailbox(mailbox.getHSId(), partition);
         }
-        ExecutorTxnIdSafetyState safetyState = new ExecutorTxnIdSafetyState(siteMap);
-        DtxnInitiatorMailbox mailbox = new DtxnInitiatorMailbox(safetyState, m_messenger);
-        m_messenger.createMailbox(null, mailbox);
-        registerInitiatorMailbox(mailbox.getHSId());
-        return mailbox;
+        return mailboxes;
     }
 
-    private void registerInitiatorMailbox(long HSId) throws Exception {
+    private void registerInitiatorMailbox(long HSId, int partition) throws Exception {
         JSONObject jsObj = new JSONObject();
         jsObj.put("HSId", HSId);
+        jsObj.put("partitionId", partition);
         byte[] payload = jsObj.toString(4).getBytes("UTF-8");
         m_messenger.getZK().create(VoltZK.mailboxes_initiators_initiator, payload,
                                    Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
