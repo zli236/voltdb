@@ -294,12 +294,13 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
 
             m_licenseApi = MiscUtils.licenseApiFactory(m_config.m_pathToLicense);
 
+            JSONObject topoJson = createTopologyBlob();
+
             ArrayDeque<Mailbox> siteMailboxes = null;
             DtxnInitiatorMailbox initiatorMailbox = null;
-            // start mailbox tracker since all the
             m_faultManager = new FaultDistributor(this);
             try {
-                siteMailboxes = createMailboxesForSites();
+                siteMailboxes = createMailboxesForSites(topoJson);
                 MailboxTracker mailboxTracker = new MailboxTracker(m_messenger.getZK(), m_messenger.getHostId());
                 m_catalogContext.siteTracker.setMailboxTracker(mailboxTracker);
                 initiatorMailbox = createInitiatorMailbox();
@@ -496,30 +497,20 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
         }
     }
 
-    private ArrayDeque<Mailbox> createMailboxesForSites() throws Exception {
-        ArrayDeque<Mailbox> mailboxes = new ArrayDeque<Mailbox>();
+    private JSONObject createTopologyBlob()
+    {
         int sitesperhost = m_deployment.getCluster().getSitesperhost();
         int hostcount = m_deployment.getCluster().getHostcount();
         int kfactor = m_deployment.getCluster().getKfactor();
         ClusterConfig clusterConfig = new ClusterConfig(hostcount, sitesperhost, kfactor);
         JSONObject topo = registerClusterConfig(clusterConfig);
-        List<Integer> partitions =
-            ClusterConfig.partitionsForHost(topo, m_messenger.getHostId());
-        assert(partitions.size() == sitesperhost);
-        for (Integer partition : partitions)
-        {
-            Mailbox mailbox = m_messenger.createMailbox();
-            mailboxes.add(mailbox);
-            registerExecutionSiteMailbox(mailbox.getHSId(), partition);
-        }
-        return mailboxes;
+        return topo;
     }
 
     private JSONObject registerClusterConfig(ClusterConfig config)
     {
         JSONObject topo = null;
-        try
-        {
+        try {
             topo = config.getTopology(m_messenger.getLiveHostIds());
             byte[] payload = topo.toString(4).getBytes("UTF-8");
             m_messenger.getZK().create(VoltZK.topology, payload,
@@ -528,16 +519,28 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
             byte[] data = m_messenger.getZK().getData(VoltZK.topology, false, null);
             topo = new JSONObject(new String(data, "UTF-8"));
         }
-        catch (KeeperException.NodeExistsException nee)
-        {
+        catch (KeeperException.NodeExistsException nee) {
         }
-        catch (Exception e)
-        {
+        catch (Exception e) {
             VoltDB.crashLocalVoltDB("Unable to write topology to ZK, dying",
                                     true, e);
         }
         return topo;
     }
+
+    private ArrayDeque<Mailbox> createMailboxesForSites(JSONObject topo) throws Exception
+    {
+        ArrayDeque<Mailbox> mailboxes = new ArrayDeque<Mailbox>();
+        List<Integer> partitions =
+            ClusterConfig.partitionsForHost(topo, m_messenger.getHostId());
+        for (Integer partition : partitions) {
+            Mailbox mailbox = m_messenger.createMailbox();
+            mailboxes.add(mailbox);
+            registerExecutionSiteMailbox(mailbox.getHSId(), partition);
+        }
+        return mailboxes;
+    }
+
 
     /**
      * Publishes the HSId of this execution site to ZK
