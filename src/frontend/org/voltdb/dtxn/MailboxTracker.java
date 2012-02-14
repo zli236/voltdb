@@ -52,6 +52,8 @@ public class MailboxTracker {
             new HashMap<Integer, Long>();
     private volatile Map<Integer, ArrayList<Long>> m_hostsToInitiators =
             new HashMap<Integer, ArrayList<Long>>();
+    private volatile Map<Integer, Long> m_partitionToPrimaryInitiator =
+            new HashMap<Integer, Long>();
 
     public MailboxTracker(ZooKeeper zk, int hostId) throws Exception {
         m_zk = zk;
@@ -166,6 +168,7 @@ public class MailboxTracker {
             }
         });
 
+        // First map the initiators to hosts
         Map<Integer, ArrayList<Long>> hostsToInitiators = new HashMap<Integer, ArrayList<Long>>();
         for (String child : children) {
             byte[] data = m_zk.getData(VoltZK.mailboxes_initiators + "/" + child, false, null);
@@ -187,6 +190,28 @@ public class MailboxTracker {
         }
 
         m_hostsToInitiators = hostsToInitiators;
+
+
+        // Then map the partitions to primary initiator. This probably
+        // moves to a separate leader election zk node once k-safety
+        // tests have to pass. Thus it is written independently from
+        // the above loop.
+        for (String child : children) {
+            byte[] data = m_zk.getData(
+                    VoltZK.path(VoltZK.mailboxes_initiators, child),
+                    false,
+                    null);
+            JSONObject jsObj= new JSONObject(new String(data, "UTF-8"));
+            try {
+                long HSId = jsObj.getLong("HSId");
+                int partitionId = jsObj.getInt("partitionId");
+                m_partitionToPrimaryInitiator.put(partitionId, HSId);
+            }
+            catch (JSONException e) {
+                log.error(e.getMessage());
+            }
+        }
+
     }
 
     public static int getHostForHSId(long HSId) {

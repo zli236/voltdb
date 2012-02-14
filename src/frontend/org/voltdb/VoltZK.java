@@ -75,7 +75,8 @@ public class VoltZK {
     /**
      * Race to create the persistent nodes.
      */
-    public static void createPersistentZKNodes(ZooKeeper zk) {
+    public static void createPersistentZKNodes(ZooKeeper zk)
+    {
         LinkedList<ZKUtil.StringCallback> callbacks = new LinkedList<ZKUtil.StringCallback>();
         for (int i=0; i < VoltZK.ZK_HIERARCHY.length; i++) {
                 ZKUtil.StringCallback cb = new ZKUtil.StringCallback();
@@ -93,5 +94,18 @@ public class VoltZK {
             VoltDB.crashLocalVoltDB(e.getMessage(), true, e);
         }
     }
+
+    /**
+     * Helper to produce a valid path from variadic strings.
+     */
+    public static String path(String... components)
+    {
+        String path = components[0];
+        for (int i=1; i < components.length; i++) {
+            path = path + "/" + components[i];
+        }
+        return path;
+    }
+
 
 }
