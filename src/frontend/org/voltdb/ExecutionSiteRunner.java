@@ -72,6 +72,8 @@ public class ExecutionSiteRunner implements Runnable {
             VoltDB.crashLocalVoltDB(e.getMessage(), true, e);
         }
 
+        // RealVoltDB also synchronizes on this reference to
+        // coordinate startup.
         synchronized (this) {
             m_isSiteCreated = true;
             this.notifyAll();

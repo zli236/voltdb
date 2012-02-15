@@ -316,6 +316,10 @@ public class SiteTracker {
         m_mailboxTracker = mailboxTracker;
     }
 
+    public long getPrimaryInitiatorHSIdForPartition(int partitionId) {
+        return m_mailboxTracker.getPrimaryInitiatorHSIdForPartition(partitionId);
+    }
+
     public MailboxTracker getMailboxTracker() {
         return m_mailboxTracker;
     }

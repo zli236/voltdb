@@ -32,7 +32,9 @@ public class InitiatorMailbox implements Mailbox
     private final int partitionId;
     private final HostMessenger messenger;
     private long hsId;
-    private InitiatorRole role;
+
+    // for now, there are only primary initiatiors.
+    private InitiatorRole role = new PrimaryRole();
 
     public InitiatorMailbox(HostMessenger messenger, int partitionId)
     {

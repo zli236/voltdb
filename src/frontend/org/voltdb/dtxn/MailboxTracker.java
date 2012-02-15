@@ -260,6 +260,10 @@ public class MailboxTracker {
         return initiators;
     }
 
+    public long getPrimaryInitiatorHSIdForPartition(int partitionId) {
+        return m_partitionToPrimaryInitiator.get(partitionId);
+    }
+
     public boolean isLeader() {
         return m_isLeader;
     }

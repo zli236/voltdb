@@ -19,7 +19,10 @@ package org.voltdb.iv2;
 
 import org.voltcore.messaging.VoltMessage;
 
+import org.voltdb.messaging.Iv2SPInitMessage;
+
 public interface InitiatorRole
 {
     public void offer(VoltMessage message);
+    public Iv2SPInitMessage poll();
 }

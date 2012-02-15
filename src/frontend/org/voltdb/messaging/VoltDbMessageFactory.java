@@ -30,6 +30,7 @@ public class VoltDbMessageFactory extends VoltMessageFactory
     final public static byte COMPLETE_TRANSACTION_ID = VOLTCORE_MESSAGE_ID_MAX + 6;
     final public static byte COMPLETE_TRANSACTION_RESPONSE_ID = VOLTCORE_MESSAGE_ID_MAX + 7;
     final public static byte COALESCED_HEARTBEAT_ID = VOLTCORE_MESSAGE_ID_MAX + 8;
+    final public static byte Iv2SP_INIT_MESSAGE_ID = VOLTCORE_MESSAGE_ID_MAX + 9;
 
     /**
      * Overridden by subclasses to create message types unknown by voltcore
@@ -57,14 +58,17 @@ public class VoltDbMessageFactory extends VoltMessageFactory
         case PARTICIPANT_NOTICE_ID:
             message = new MultiPartitionParticipantMessage();
             break;
-        case COALESCED_HEARTBEAT_ID:
-            message = new CoalescedHeartbeatMessage();
-            break;
         case COMPLETE_TRANSACTION_ID:
             message = new CompleteTransactionMessage();
             break;
         case COMPLETE_TRANSACTION_RESPONSE_ID:
             message = new CompleteTransactionResponseMessage();
+            break;
+        case COALESCED_HEARTBEAT_ID:
+            message = new CoalescedHeartbeatMessage();
+            break;
+        case Iv2SP_INIT_MESSAGE_ID:
+            message = new Iv2SPInitMessage();
             break;
         default:
             message = null;

@@ -46,6 +46,7 @@ import org.voltcore.messaging.Subject;
 import org.voltcore.messaging.TransactionInfoBaseMessage;
 import org.voltcore.messaging.VoltMessage;
 import org.voltcore.utils.EstTime;
+import org.voltdb.iv2.InitiatorMailbox;
 import org.voltdb.RecoverySiteProcessor.MessageHandler;
 import org.voltdb.SnapshotSiteProcessor.SnapshotTableTask;
 import org.voltdb.SystemProcedureCatalog.Config;
@@ -145,6 +146,8 @@ implements Runnable, SiteTransactionConnection, SiteProcedureConnection
 
     HashMap<Long, TransactionState> m_transactionsById = new HashMap<Long, TransactionState>();
     private final RestrictedPriorityQueue m_transactionQueue;
+
+    private final InitiatorMailbox m_iv2InitiatorMailbox;
 
     private TransactionState m_currentTransactionState;
 
@@ -608,6 +611,19 @@ implements Runnable, SiteTransactionConnection, SiteProcedureConnection
 
     SystemProcedureContext m_systemProcedureContext;
 
+    private InitiatorMailbox lookupInitiatorMailbox()
+    {
+        // IV2 XXX: move this mapping to RealVoltdb/ExecutionSiteRunner
+        // find the hsid of the primary initiator for this
+        // site and grab the mailbox from HostMessenger.
+        long iv2HsId =
+            m_context.siteTracker.getPrimaryInitiatorHSIdForPartition(
+                m_context.siteTracker.getPartitionForSite(m_siteId));
+
+        return (InitiatorMailbox)VoltDB.instance().
+            getHostMessenger().getMailbox(iv2HsId);
+    }
+
     /**
      * Dummy ExecutionSite useful to some tests that require Mock/Do-Nothing sites.
      * @param siteId
@@ -626,6 +642,7 @@ implements Runnable, SiteTransactionConnection, SiteProcedureConnection
 
         // initialize the DR gateway
         m_partitionDRGateway = new PartitionDRGateway();
+        m_iv2InitiatorMailbox = lookupInitiatorMailbox();
     }
 
     ExecutionSite(VoltDBInterface voltdb, Mailbox mailbox,
@@ -684,6 +701,8 @@ implements Runnable, SiteTransactionConnection, SiteProcedureConnection
         // allow dependency injection of the transaction queue implementation
         m_transactionQueue =
             (transactionQueue != null) ? transactionQueue : initializeTransactionQueue(m_siteId);
+
+        m_iv2InitiatorMailbox = lookupInitiatorMailbox();
 
         loadProcedures(voltdb.getBackendTargetType());
 

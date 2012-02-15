@@ -65,6 +65,7 @@ import org.voltcore.network.WriteStream;
 import org.voltcore.utils.EstTime;
 import org.voltcore.utils.MiscUtils;
 import org.voltcore.utils.Pair;
+import org.voltdb.messaging.Iv2SPInitMessage;
 import org.voltdb.SystemProcedureCatalog.Config;
 import org.voltdb.catalog.CatalogMap;
 import org.voltdb.catalog.Partition;
@@ -795,21 +796,27 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
             final int messageSize,
             final long now)
     {
-        return m_initiator.createTransaction(
-                connectionId,
-                connectionHostname,
-                adminConnection,
-                invocation,
-                isReadOnly,
-                isSinglePartition,
-                isEveryPartition,
-                partitions,
-                numPartitions,
-                clientData,
-                messageSize,
-                now);
-    }
+        if (isSinglePartition) {
+            long hsid = m_catalogContext.get().siteTracker.
+                getPrimaryInitiatorHSIdForPartition(partitions[0]);
+            Iv2SPInitMessage initMsg =
+                new Iv2SPInitMessage(connectionId, invocation);
+            try {
+                m_mailbox.send(hsid, initMsg);
+            }
+            catch (MessagingException e) {
+                hostLog.debug("Failed to initiate transaction for partition " + partitions[0] +
+                        " " + e.getMessage(), e);
+                return false;
+            }
 
+            return true;
+        }
+        else {
+            hostLog.error("Does not support multi-partition transactions!");
+            return false;
+        }
+    }
 
 
     /**
