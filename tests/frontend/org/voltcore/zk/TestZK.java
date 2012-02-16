@@ -238,9 +238,12 @@ public class TestZK extends ZKTestBase {
 
         zk.create("/election", new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 
-        LeaderElector elector1 = new LeaderElector(zk, "/election", new byte[0], null);
-        LeaderElector elector2 = new LeaderElector(zk2, "/election", new byte[0], null);
-        LeaderElector elector3 = new LeaderElector(zk3, "/election", new byte[0], null);
+        LeaderElector elector1 = new LeaderElector(zk, "/election", "node", null, null);
+        LeaderElector elector2 = new LeaderElector(zk2, "/election", "node", null, null);
+        LeaderElector elector3 = new LeaderElector(zk3, "/election", "node", null, null);
+        elector1.start();
+        elector2.start();
+        elector3.start();
 
         assertTrue(elector1.isLeader());
         assertFalse(elector2.isLeader());

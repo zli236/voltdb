@@ -496,8 +496,9 @@ SnapshotCompletionInterest {
      * Enters the restore process. Creates ZooKeeper barrier node for this host.
      */
     void enterRestore() {
+        m_leaderElector = new LeaderElector(m_zk, RESTORE_BARRIER, "node", new byte[0], null);
         try {
-            m_leaderElector = new LeaderElector(m_zk, RESTORE_BARRIER, new byte[0], null);
+            m_leaderElector.start();
         } catch (Exception e) {
             VoltDB.crashGlobalVoltDB("Failed to create Zookeeper node: " + e.getMessage(),
                                      false, e);

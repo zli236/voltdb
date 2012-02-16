@@ -61,6 +61,10 @@ public class VoltZK {
     public static final String user_snapshot_request = "/db/user_snapshot_request";
     public static final String user_snapshot_response = "/db/user_snapshot_response";
 
+    // leader election
+    public static final String leaders = "/db/leaders";
+    public static final String leaders_initiators = "/db/leaders/initiators";
+
     // Persistent nodes (mostly directories) to create on startup
     public static final String[] ZK_HIERARCHY = {
             root,
@@ -70,6 +74,8 @@ public class VoltZK {
             mailboxes_initiators,
             mailboxes_asyncplanners,
             mailboxes_clientinterfaces,
+            leaders,
+            leaders_initiators
     };
 
     /**
@@ -107,5 +113,7 @@ public class VoltZK {
         return path;
     }
 
-
+    public static String electionDirForPartition(int partition) {
+        return path(leaders_initiators, "partition_" + partition);
+    }
 }
