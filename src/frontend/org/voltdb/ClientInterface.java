@@ -63,7 +63,6 @@ import org.voltcore.network.VoltNetworkPool;
 import org.voltcore.network.VoltProtocolHandler;
 import org.voltcore.network.WriteStream;
 import org.voltcore.utils.EstTime;
-import org.voltcore.utils.MiscUtils;
 import org.voltcore.utils.Pair;
 import org.voltdb.messaging.Iv2SPInitMessage;
 import org.voltdb.SystemProcedureCatalog.Config;
@@ -609,8 +608,8 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
                 responseBuffer.put((byte)0);
                 responseBuffer.putInt(VoltDB.instance().getHostMessenger().getHostId());
                 responseBuffer.putLong(handler.connectionId());
-                responseBuffer.putLong((Long)VoltDB.instance().getInstanceId()[0]);
-                responseBuffer.putInt((Integer)VoltDB.instance().getInstanceId()[1]);
+                responseBuffer.putLong(VoltDB.instance().getHostMessenger().getInstanceId().getTimestamp());
+                responseBuffer.putInt(VoltDB.instance().getHostMessenger().getInstanceId().getCoord());
                 responseBuffer.putInt(buildString.length);
                 responseBuffer.put(buildString).flip();
                 socket.write(responseBuffer);
@@ -978,7 +977,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
     // in the cluster, make our SnapshotDaemon responsible for snapshots
     public void mayActivateSnapshotDaemon() {
         SnapshotSchedule schedule = m_catalogContext.get().database.getSnapshotschedule().get("default");
-        if (m_catalogContext.get().siteTracker.isLeader() &&
+        if (VoltDB.instance().getSiteTracker().isFirstHost() &&
             schedule != null && schedule.getEnabled())
         {
             Future<Void> future = m_snapshotDaemon.makeActive(schedule);
@@ -1254,7 +1253,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
                     params.m_params[0] = new String("OVERVIEW");
                 }
                 //So that the modified version is reserialized, null out the lazy copy
-                task.unserializedParams = null;
+                task.serializedParams = null;
             }
 
             // the shared dispatch for sysprocs
@@ -1697,6 +1696,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
         public void enqueue(ByteBuffer b)
         {
             ClientResponseImpl resp = new ClientResponseImpl();
+            b.position(4);
             try
             {
                 resp.initFromBuffer(b);

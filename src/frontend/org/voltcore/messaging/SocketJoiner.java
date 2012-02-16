@@ -16,39 +16,26 @@
  */
 package org.voltcore.messaging;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedByInterruptException;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 
 import org.json_voltpatches.JSONArray;
 import org.json_voltpatches.JSONObject;
-import org.json_voltpatches.JSONStringer;
 import org.voltcore.VoltDB;
 import org.voltcore.logging.Level;
 import org.voltcore.logging.VoltLogger;
-import org.voltcore.utils.Pair;
 
 /**
  * SocketJoiner runs all the time listening for new nodes in the cluster. Since it is a dedicated thread
@@ -90,7 +77,6 @@ public class SocketJoiner {
     }
 
     private static final VoltLogger LOG = new VoltLogger(SocketJoiner.class.getName());
-    private static final VoltLogger recoveryLog = new VoltLogger("RECOVERY");
 
     private final ExecutorService m_es = Executors.newSingleThreadExecutor(
             org.voltcore.utils.MiscUtils.getThreadFactory("Socket Joiner", 1024 * 128));
@@ -100,8 +86,6 @@ public class SocketJoiner {
     Map<Integer, SocketChannel> m_sockets = new HashMap<Integer, SocketChannel>();
     ServerSocketChannel m_listenerSocket = null;
     VoltLogger m_hostLog;
-    long m_timestamp;//Part of instanceId
-    byte m_addr[];
     private final JoinHandler m_joinHandler;
 
     // from configuration data
@@ -223,7 +207,12 @@ public class SocketJoiner {
         else {
             inetsockaddr = new InetSocketAddress(m_internalInterface, m_internalPort);
         }
-        m_listenerSocket.socket().bind(inetsockaddr);
+        try {
+            m_listenerSocket.socket().bind(inetsockaddr);
+        } catch (Exception e) {
+            LOG.fatal("Failed to bind to " + inetsockaddr);
+            throw e;
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("Non-Primary Listening on:" + inetsockaddr.toString());
         }

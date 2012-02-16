@@ -20,6 +20,7 @@ package org.voltdb.sysprocs.saverestore;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.TreeSet;
 
 import org.voltdb.ParameterSet;
 import org.voltdb.VoltDB;
@@ -64,8 +65,7 @@ public class ReplicatedTableSaveFileState extends TableSaveFileState
     generateRestorePlan(Table catalogTable)
     {
         for (int hostId : m_hostsWithThisTable) {
-            m_sitesWithThisTable.addAll(VoltDB.instance().getCatalogContext().
-                                        siteTracker.getLiveExecutionSitesForHost(hostId));
+            m_sitesWithThisTable.addAll(VoltDB.instance().getSiteTracker().getSitesForHost(hostId));
         }
 
         SynthesizedPlanFragment[] restore_plan = null;
@@ -97,7 +97,7 @@ public class ReplicatedTableSaveFileState extends TableSaveFileState
     {
         SynthesizedPlanFragment[] restore_plan = null;
         Set<Long> execution_site_ids =
-            VoltDB.instance().getCatalogContext().siteTracker.getExecutionSiteIds();
+            VoltDB.instance().getSiteTracker().getAllSites();
         Set<Long> sites_missing_table =
             getSitesMissingTable(execution_site_ids);
         // not sure we want to deal with handling expected load failures,
@@ -196,5 +196,5 @@ public class ReplicatedTableSaveFileState extends TableSaveFileState
     }
 
     private final Set<Integer> m_hostsWithThisTable = new HashSet<Integer>();
-    private final Set<Long> m_sitesWithThisTable = new HashSet<Long>();
+    private final Set<Long> m_sitesWithThisTable = new TreeSet<Long>();
 }

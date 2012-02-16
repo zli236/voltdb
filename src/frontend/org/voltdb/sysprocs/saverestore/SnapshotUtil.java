@@ -46,18 +46,15 @@ import org.json_voltpatches.JSONArray;
 import org.json_voltpatches.JSONException;
 import org.json_voltpatches.JSONObject;
 import org.json_voltpatches.JSONStringer;
-import org.voltdb.ExecutionSite.SystemProcedureExecutionContext;
+import org.voltcore.utils.DBBPool.BBContainer;
+import org.voltcore.utils.Pair;
 import org.voltdb.VoltDB;
 import org.voltdb.VoltTable;
 import org.voltdb.catalog.CatalogMap;
 import org.voltdb.catalog.Database;
-import org.voltdb.catalog.Host;
 import org.voltdb.catalog.Table;
 import org.voltdb.client.ConnectionUtil;
-import org.voltdb.dtxn.MailboxTracker;
 import org.voltdb.utils.CatalogUtil;
-import org.voltcore.utils.DBBPool.BBContainer;
-import org.voltcore.utils.Pair;
 import org.voltdb.utils.VoltFile;
 
 public class SnapshotUtil {
@@ -785,16 +782,9 @@ public class SnapshotUtil {
         return my_tables;
     }
 
-    public static final List<Integer> getPartitionsOnHost(
-            SystemProcedureExecutionContext c, int host) {
+    public static final List<Integer> getPartitionsOnHost(int host) {
         final ArrayList<Integer> results = new ArrayList<Integer>();
-        for (long s : VoltDB.instance().getCatalogContext().siteTracker.getAllLiveSites()) {
-            int hostId = MailboxTracker.getHostForHSId(s);
-            Integer partitionId = VoltDB.instance().getCatalogContext().siteTracker.getMailboxTracker().getPartitionForSite(s);
-            if (hostId == host) {
-                results.add(partitionId);
-            }
-        }
+        results.addAll(VoltDB.instance().getSiteTracker().getPartitionsForHost(host));
         return results;
     }
 

@@ -58,6 +58,7 @@ import org.voltdb.VoltTable;
 import org.voltdb.VoltType;
 import org.voltdb.messaging.InitiateResponseMessage;
 import org.voltcore.messaging.VoltMessage;
+import org.voltcore.utils.MiscUtils;
 
 public class TestSimpleWorkUnit extends TestCase
 {
@@ -83,7 +84,8 @@ public class TestSimpleWorkUnit extends TestCase
         }
         for (int i = 0; i < numParts * replicas; i++)
         {
-            m_voltdb.addSite(i, i / sites_per_host, i % replicas, true);
+            System.out.println("Adding site host " + (i / sites_per_host) + " site " + i);
+            m_voltdb.addSite(MiscUtils.getHSIdFromHostAndSite(i / sites_per_host, i), i % replicas);
         }
     }
 
@@ -113,14 +115,14 @@ public class TestSimpleWorkUnit extends TestCase
 
     public void testNoDependenciesNoReplicas() {
         setUpSites(1, 2, 1);
-        WorkUnit w = new WorkUnit(m_voltdb.getCatalogContext().siteTracker,
+        WorkUnit w = new WorkUnit(m_voltdb.getSiteTracker(),
                                   work, new int[]{}, 0, null, false);
         assertTrue(w.allDependenciesSatisfied());
         assertEquals(work, w.getPayload());
         assertNull(w.getDependencies());
         assertNull(w.getDependency(0));
 
-        w = new WorkUnit(m_voltdb.getCatalogContext().siteTracker, work, null,
+        w = new WorkUnit(m_voltdb.getSiteTracker(), work, null,
                          0, null, false);
         assertTrue(w.allDependenciesSatisfied());
     }
@@ -129,9 +131,9 @@ public class TestSimpleWorkUnit extends TestCase
         setUpSites(1, 2, 1);
         System.out.println(m_voltdb.getCatalogContext().catalog.serialize());
         int multi_dep = 5 | DtxnConstants.MULTIPARTITION_DEPENDENCY;
-        WorkUnit w = new WorkUnit(m_voltdb.getCatalogContext().siteTracker,
+        WorkUnit w = new WorkUnit(m_voltdb.getSiteTracker(),
                                   work, new int[]{ 4, multi_dep }, 0L,
-                                  new long[]{1}, false);
+                                  new long[]{MiscUtils.getHSIdFromHostAndSite(0, 1)}, false);
         assertFalse(w.allDependenciesSatisfied());
         assertEquals(w.getDependency(4).size(), 0);
         assertEquals(w.getDependency(multi_dep).size(), 0);
@@ -139,7 +141,7 @@ public class TestSimpleWorkUnit extends TestCase
         assertFalse(w.allDependenciesSatisfied());
         w.putDependency(multi_dep, 0, t2);
         assertFalse(w.allDependenciesSatisfied());
-        w.putDependency(multi_dep, 1, t2);
+        w.putDependency(multi_dep, MiscUtils.getHSIdFromHostAndSite(0, 1), t2);
         assertTrue(w.allDependenciesSatisfied());
         assertEquals(t1, w.getDependency(4).get(0));
         assertEquals(t2, w.getDependency(multi_dep).get(0));
@@ -147,7 +149,7 @@ public class TestSimpleWorkUnit extends TestCase
 
     public void testBadPutDependencyNoReplicas() {
         setUpSites(1, 2, 1);
-        WorkUnit w = new WorkUnit(m_voltdb.getCatalogContext().siteTracker,
+        WorkUnit w = new WorkUnit(m_voltdb.getSiteTracker(),
                                   work, new int[]{ 4, 5 }, 0L,
                                   new long[]{1}, false);
 
@@ -176,9 +178,12 @@ public class TestSimpleWorkUnit extends TestCase
         setUpSites(2, 2, 2);
         System.out.println(m_voltdb.getCatalogContext().catalog.serialize());
         int multi_dep = 5 | DtxnConstants.MULTIPARTITION_DEPENDENCY;
-        WorkUnit w = new WorkUnit(m_voltdb.getCatalogContext().siteTracker,
+        WorkUnit w = new WorkUnit(m_voltdb.getSiteTracker(),
                                   work, new int[]{ 4, multi_dep }, 0L,
-                                  new long[]{1, 2, 3}, false);
+                                  new long[]{
+                                        MiscUtils.getHSIdFromHostAndSite( 0, 1),
+                                        MiscUtils.getHSIdFromHostAndSite( 1, 2),
+                                        MiscUtils.getHSIdFromHostAndSite( 1, 3)}, false);
         assertFalse(w.allDependenciesSatisfied());
         assertEquals(w.getDependency(4).size(), 0);
         assertEquals(w.getDependency(5).size(), 0);
@@ -186,11 +191,11 @@ public class TestSimpleWorkUnit extends TestCase
         assertFalse(w.allDependenciesSatisfied());
         w.putDependency(multi_dep, 0, t2);
         assertFalse(w.allDependenciesSatisfied());
-        w.putDependency(multi_dep, 1, t2);
+        w.putDependency(multi_dep, MiscUtils.getHSIdFromHostAndSite( 0, 1), t2);
         assertFalse(w.allDependenciesSatisfied());
-        w.putDependency(multi_dep, 2, t2);
+        w.putDependency(multi_dep, MiscUtils.getHSIdFromHostAndSite( 1, 2), t2);
         assertFalse(w.allDependenciesSatisfied());
-        w.putDependency(multi_dep, 3, t2);
+        w.putDependency(multi_dep, MiscUtils.getHSIdFromHostAndSite( 1, 3), t2);
         assertTrue(w.allDependenciesSatisfied());
         assertEquals(1, w.getDependency(4).size());
         assertEquals(t1, w.getDependency(4).get(0));
@@ -208,7 +213,7 @@ public class TestSimpleWorkUnit extends TestCase
 
         setUpSites(2, 2, 1);
         int multi_dep = 5 | DtxnConstants.MULTIPARTITION_DEPENDENCY;
-        WorkUnit w = new WorkUnit(m_voltdb.getCatalogContext().siteTracker,
+        WorkUnit w = new WorkUnit(m_voltdb.getSiteTracker(),
                                   work, new int[]{ 4, multi_dep }, 0L,
                                   new long[] { 1, 2, 3}, false);
         assertFalse(w.allDependenciesSatisfied());
@@ -235,9 +240,13 @@ public class TestSimpleWorkUnit extends TestCase
         setUpSites(2, 2, 2);
         System.out.println(m_voltdb.getCatalogContext().catalog.serialize());
         int multi_dep = 5 | DtxnConstants.MULTIPARTITION_DEPENDENCY;
-        WorkUnit w = new WorkUnit(m_voltdb.getCatalogContext().siteTracker,
+        WorkUnit w = new WorkUnit(m_voltdb.getSiteTracker(),
                                   work, new int[]{ 4, multi_dep }, 0L,
-                                  new long[]{1, 2, 3}, false);
+                                  new long[]{
+                                      MiscUtils.getHSIdFromHostAndSite( 0, 1),
+                                      MiscUtils.getHSIdFromHostAndSite( 1, 2),
+                                      MiscUtils.getHSIdFromHostAndSite( 1, 3)},
+                                      false);
         assertFalse(w.allDependenciesSatisfied());
         assertEquals(w.getDependency(4).size(), 0);
         assertEquals(w.getDependency(5).size(), 0);
@@ -245,11 +254,11 @@ public class TestSimpleWorkUnit extends TestCase
         assertFalse(w.allDependenciesSatisfied());
         w.putDependency(multi_dep, 0, t2);
         assertFalse(w.allDependenciesSatisfied());
-        w.putDependency(multi_dep, 1, t2);
+        w.putDependency(multi_dep, MiscUtils.getHSIdFromHostAndSite( 0, 1), t2);
         assertFalse(w.allDependenciesSatisfied());
-        w.putDependency(multi_dep, 2, t2);
+        w.putDependency(multi_dep, MiscUtils.getHSIdFromHostAndSite( 1, 2), t2);
         assertFalse(w.allDependenciesSatisfied());
-        w.removeSite(3);
+        w.removeSite(MiscUtils.getHSIdFromHostAndSite( 1, 3));
         assertTrue(w.allDependenciesSatisfied());
         assertEquals(1, w.getDependency(4).size());
         assertEquals(t1, w.getDependency(4).get(0));
