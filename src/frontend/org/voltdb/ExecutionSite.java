@@ -612,19 +612,6 @@ implements Runnable, SiteTransactionConnection, SiteProcedureConnection
 
     SystemProcedureContext m_systemProcedureContext;
 
-    private InitiatorMailbox lookupInitiatorMailbox()
-    {
-        // IV2 XXX: move this mapping to RealVoltdb/ExecutionSiteRunner
-        // find the hsid of the primary initiator for this
-        // site and grab the mailbox from HostMessenger.
-        long iv2HsId =
-            m_context.siteTracker.getPrimaryInitiatorHSIdForPartition(
-                m_context.siteTracker.getPartitionForSite(m_siteId));
-
-        return (InitiatorMailbox)VoltDB.instance().
-            getHostMessenger().getMailbox(iv2HsId);
-    }
-
     /**
      * Dummy ExecutionSite useful to some tests that require Mock/Do-Nothing sites.
      * @param siteId
@@ -643,10 +630,11 @@ implements Runnable, SiteTransactionConnection, SiteProcedureConnection
 
         // initialize the DR gateway
         m_partitionDRGateway = new PartitionDRGateway();
-        m_iv2InitiatorMailbox = lookupInitiatorMailbox();
+        m_iv2InitiatorMailbox = null;
     }
 
     ExecutionSite(VoltDBInterface voltdb, Mailbox mailbox,
+                  InitiatorMailbox initiatorMailbox,
                   String serializedCatalog,
                   RestrictedPriorityQueue transactionQueue,
                   boolean recovering,
@@ -704,7 +692,7 @@ implements Runnable, SiteTransactionConnection, SiteProcedureConnection
         m_transactionQueue =
             (transactionQueue != null) ? transactionQueue : initializeTransactionQueue(m_siteId);
 
-        m_iv2InitiatorMailbox = lookupInitiatorMailbox();
+        m_iv2InitiatorMailbox = initiatorMailbox;
 
         loadProcedures(voltdb.getBackendTargetType());
 

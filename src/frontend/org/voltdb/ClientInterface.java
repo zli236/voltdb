@@ -796,8 +796,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
             final long now)
     {
         if (isSinglePartition) {
-            long hsid = m_catalogContext.get().siteTracker.
-                getPrimaryInitiatorHSIdForPartition(partitions[0]);
+            long hsid = 0; // TODO: should be set to the leader hsid
             Iv2SPInitMessage initMsg =
                 new Iv2SPInitMessage(connectionId, invocation);
             try {

@@ -74,8 +74,6 @@ import org.voltdb.compiler.ClusterConfig;
 import org.voltdb.compiler.deploymentfile.DeploymentType;
 import org.voltdb.compiler.deploymentfile.HeartbeatType;
 import org.voltdb.compiler.deploymentfile.UsersType;
-import org.voltdb.dtxn.DtxnInitiatorMailbox;
-import org.voltdb.dtxn.ExecutorTxnIdSafetyState;
 import org.voltdb.dtxn.MailboxTracker;
 import org.voltdb.dtxn.MailboxUpdateHandler;
 import org.voltdb.dtxn.SimpleDtxnInitiator;
@@ -302,13 +300,13 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, Mailb
             JSONObject topoJson = createTopologyBlob();
 
             Deque<Mailbox> siteMailboxes = null;
-            DtxnInitiatorMailbox initiatorMailbox = null;
+            Map<Integer, InitiatorMailbox> initiatorMailboxes = null;
             m_faultManager = new FaultDistributor(this);
             try {
                 siteMailboxes = createMailboxesForSites(topoJson);
                 m_mailboxTracker = new MailboxTracker(m_messenger.getZK(), this);
                 m_mailboxTracker.start();
-                createMailboxesForInitiators(topoJson);
+                initiatorMailboxes = createMailboxesForInitiators(topoJson);
             } catch (Exception e) {
                 VoltDB.crashLocalVoltDB(e.getMessage(), true, e);
             }
@@ -344,11 +342,14 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, Mailb
             for (Mailbox mailbox : siteMailboxes) {
                 long site = mailbox.getHSId();
                 int sitesHostId = SiteTracker.getHostForSite(site);
+                int partition = m_siteTracker.getPartitionForSite(site);
+                InitiatorMailbox initiatorMailbox = initiatorMailboxes.get(partition);
 
                 // start a local site
                 if (sitesHostId == m_myHostId) {
                     ExecutionSiteRunner runner =
                             new ExecutionSiteRunner(mailbox,
+                                                    initiatorMailbox,
                                                     m_catalogContext,
                                                     m_serializedCatalog,
                                                     m_recovering,
@@ -368,9 +369,14 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, Mailb
              * this thread can set up its own execution site.
              */
             try {
+                long site = localThreadMailbox.getHSId();
+                int partition = m_siteTracker.getPartitionForSite(site);
+                InitiatorMailbox initiatorMailbox = initiatorMailboxes.get(partition);
+
                 ExecutionSite siteObj =
                         new ExecutionSite(VoltDB.instance(),
                                           localThreadMailbox,
+                                          initiatorMailbox,
                                           m_serializedCatalog,
                                           null,
                                           m_recovering,
@@ -407,7 +413,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, Mailb
             for (int i = 0; i < 1; i++) {
                 // create DTXN and CI for each local non-EE site
                 SimpleDtxnInitiator initiator =
-                        new SimpleDtxnInitiator(initiatorMailbox,
+                        new SimpleDtxnInitiator(null,
                                                 m_catalogContext,
                                                 m_messenger,
                                                 m_myHostId,
@@ -551,15 +557,15 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, Mailb
                                    Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
     }
 
-    private Deque<Mailbox> createMailboxesForInitiators(JSONObject topo) throws Exception
+    private Map<Integer, InitiatorMailbox> createMailboxesForInitiators(JSONObject topo) throws Exception
     {
-        Deque<Mailbox> mailboxes = new ArrayDeque<Mailbox>();
+        Map<Integer, InitiatorMailbox> mailboxes = new HashMap<Integer, InitiatorMailbox>();
         List<Integer> partitions =
             ClusterConfig.partitionsForHost(topo, m_messenger.getHostId());
         for (Integer partition : partitions) {
-            Mailbox mailbox = new InitiatorMailbox(m_messenger, partition);
+            InitiatorMailbox mailbox = new InitiatorMailbox(m_messenger, partition);
             m_messenger.createMailbox(null, mailbox);
-            mailboxes.add(mailbox);
+            mailboxes.put(partition, mailbox);
             registerInitiatorMailbox(mailbox.getHSId(), partition);
         }
         return mailboxes;

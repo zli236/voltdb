@@ -50,6 +50,8 @@ public class SiteTracker {
             new HashMap<Long, Integer>();
     private final Map<Integer, ArrayList<Long>> m_hostsToInitiators =
             new HashMap<Integer, ArrayList<Long>>();
+    private final Map<Integer, ArrayList<Long>> m_partitionsToInitiators =
+            new HashMap<Integer, ArrayList<Long>>();
     private final Map<MailboxType, ArrayList<Long>> m_otherHSIds =
             new HashMap<MailboxType, ArrayList<Long>>();
     private final Map<MailboxType, Map<Integer, ArrayList<Long>>> m_hostsToOtherHSIds =
@@ -135,8 +137,14 @@ public class SiteTracker {
             }
             initiators.add(obj.HSId);
 
+            ArrayList<Long> partInitiatorList = m_partitionsToInitiators.get(obj.partitionId);
+            if (partInitiatorList == null) {
+                partInitiatorList = new ArrayList<Long>();
+                m_partitionsToInitiators.put(obj.partitionId, partInitiatorList);
+            }
+            partInitiatorList.add(obj.HSId);
+
             m_allInitiators.add(obj.HSId);
-            // TODO: needs to determine if it's the master or replica
         }
     }
 
@@ -312,6 +320,10 @@ public class SiteTracker {
 
     public List<Long> getInitiatorsForHost(int host) {
         return m_hostsToInitiators.get(host);
+    }
+
+    public List<Long> getInitiatorsForPartition(int partition) {
+        return m_partitionsToInitiators.get(partition);
     }
 
     public Map<Long, Integer> getSitesToPartitions() {

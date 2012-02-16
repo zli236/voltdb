@@ -29,6 +29,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.fail;
 
 import org.voltcore.agreement.LeaderElector;
+import org.voltcore.agreement.LeaderNoticeHandler;
 import org.voltcore.agreement.ZKUtil;
 import org.voltcore.messaging.HostMessenger;
 import org.apache.zookeeper_voltpatches.*;
@@ -267,23 +268,26 @@ public class TestZK extends ZKTestBase {
         zk.create("/election", new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 
         final Semaphore sem2 = new Semaphore(0);
-        Runnable r2 = new Runnable() {
+        LeaderNoticeHandler r2 = new LeaderNoticeHandler() {
             @Override
-            public void run() {
+            public void becomeLeader() {
                 sem2.release();
             }
         };
         final Semaphore sem3 = new Semaphore(0);
-        Runnable r3 = new Runnable() {
+        LeaderNoticeHandler r3 = new LeaderNoticeHandler() {
             @Override
-            public void run() {
+            public void becomeLeader() {
                 sem3.release();
             }
         };
 
-        LeaderElector elector1 = new LeaderElector(zk, "/election", new byte[0], null);
-        LeaderElector elector2 = new LeaderElector(zk2, "/election", new byte[0], r2);
-        LeaderElector elector3 = new LeaderElector(zk3, "/election", new byte[0], r3);
+        LeaderElector elector1 = new LeaderElector(zk, "/election", "node", new byte[0], null);
+        LeaderElector elector2 = new LeaderElector(zk2, "/election", "node", new byte[0], r2);
+        LeaderElector elector3 = new LeaderElector(zk3, "/election", "node", new byte[0], r3);
+        elector1.start();
+        elector2.start();
+        elector3.start();
 
         assertTrue(elector1.isLeader());
         assertFalse(elector2.isLeader());
@@ -312,16 +316,19 @@ public class TestZK extends ZKTestBase {
         zk.create("/election", new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 
         final Semaphore sem3 = new Semaphore(0);
-        Runnable r3 = new Runnable() {
+        LeaderNoticeHandler r3 = new LeaderNoticeHandler() {
             @Override
-            public void run() {
+            public void becomeLeader() {
                 sem3.release();
             }
         };
 
-        LeaderElector elector1 = new LeaderElector(zk, "/election", new byte[0], null);
-        LeaderElector elector2 = new LeaderElector(zk2, "/election", new byte[0], null);
-        LeaderElector elector3 = new LeaderElector(zk3, "/election", new byte[0], r3);
+        LeaderElector elector1 = new LeaderElector(zk, "/election", "node", new byte[0], null);
+        LeaderElector elector2 = new LeaderElector(zk2, "/election", "node", new byte[0], null);
+        LeaderElector elector3 = new LeaderElector(zk3, "/election", "node", new byte[0], r3);
+        elector1.start();
+        elector2.start();
+        elector3.start();
 
         assertTrue(elector1.isLeader());
         assertFalse(elector2.isLeader());
