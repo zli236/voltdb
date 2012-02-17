@@ -28,8 +28,8 @@ import org.apache.zookeeper_voltpatches.WatchedEvent;
 import org.apache.zookeeper_voltpatches.Watcher;
 import org.apache.zookeeper_voltpatches.ZooDefs.Ids;
 import org.apache.zookeeper_voltpatches.ZooKeeper;
-import org.voltcore.VoltDB;
 import org.voltcore.utils.MiscUtils;
+import org.voltdb.VoltDB;
 
 public class LeaderElector {
     private final ZooKeeper zk;

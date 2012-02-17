@@ -25,12 +25,12 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.zookeeper_voltpatches.WatchedEvent;
 import org.apache.zookeeper_voltpatches.Watcher;
 import org.apache.zookeeper_voltpatches.ZooKeeper;
-import org.voltcore.VoltDB;
 import org.voltcore.agreement.ZKUtil;
 import org.voltcore.agreement.ZKUtil.ByteArrayCallback;
 import org.voltcore.agreement.ZKUtil.ChildrenCallback;
@@ -52,7 +52,7 @@ public class MailboxTracker {
             try {
                 getMailboxDirs();
             } catch (Exception e) {
-                VoltDB.crashLocalVoltDB("Error in mailbox tracker", false, e);
+                org.voltdb.VoltDB.crashLocalVoltDB("Error in mailbox tracker", false, e);
             }
         }
     };
@@ -60,7 +60,15 @@ public class MailboxTracker {
     private final Watcher m_watcher = new Watcher() {
         @Override
         public void process(WatchedEvent event) {
-            m_es.submit(m_task);
+            try {
+                m_es.submit(m_task);
+            } catch (RejectedExecutionException e) {
+                if (m_es.isShutdown()) {
+                    return;
+                } else {
+                    org.voltdb.VoltDB.crashLocalVoltDB("Unexpected rejected execution exception", false, e);
+                }
+            }
         }
     };
 
