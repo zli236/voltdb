@@ -17,11 +17,15 @@
 
 package org.voltdb.iv2;
 
+import org.voltcore.logging.VoltLogger;
 import org.voltcore.messaging.HostMessenger;
 import org.voltcore.messaging.Mailbox;
 import org.voltcore.messaging.MessagingException;
 import org.voltcore.messaging.Subject;
 import org.voltcore.messaging.VoltMessage;
+
+import org.voltdb.messaging.InitiateResponseMessage;
+import org.voltdb.messaging.InitiateTaskMessage;
 
 /**
  * InitiatorMailbox accepts initiator work and proxies it to the
@@ -29,6 +33,7 @@ import org.voltcore.messaging.VoltMessage;
  */
 public class InitiatorMailbox implements Mailbox
 {
+    VoltLogger hostLog = new VoltLogger("HOST");
     private final int partitionId;
     private final HostMessenger messenger;
     private long hsId;
@@ -59,17 +64,31 @@ public class InitiatorMailbox implements Mailbox
     @Override
     public void deliver(VoltMessage message)
     {
-        role.offer(message);
-    }
-
-    @Override
-    public void deliverFront(VoltMessage message)
-    {
-        throw new UnsupportedOperationException("unimplemented");
+        if (message instanceof InitiateTaskMessage) {
+            role.offerInitiateTask((InitiateTaskMessage)message);
+        }
+        else if (message instanceof InitiateResponseMessage) {
+            // this isn't quite right. But - offer to the role
+            // and then always respond to the client interface.
+            InitiateResponseMessage response = (InitiateResponseMessage)message;
+            role.offerResponse(response);
+            try {
+                send(response.getClientInterfaceHSId(), response);
+            }
+            catch (MessagingException e) {
+                hostLog.error("Failed to deliver response from execution site.", e);
+            }
+        }
     }
 
     @Override
     public VoltMessage recv()
+    {
+        return role.poll();
+    }
+
+    @Override
+    public void deliverFront(VoltMessage message)
     {
         throw new UnsupportedOperationException("unimplemented");
     }

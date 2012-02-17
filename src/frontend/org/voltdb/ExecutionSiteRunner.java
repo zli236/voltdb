@@ -63,7 +63,6 @@ public class ExecutionSiteRunner implements Runnable {
             m_siteObj = new ExecutionSite(VoltDB.instance(),
                                           m_mailbox,
                                           m_serializedCatalog,
-                                          null,
                                           m_recovering,
                                           m_replicationActive,
                                           m_failedHostIds,

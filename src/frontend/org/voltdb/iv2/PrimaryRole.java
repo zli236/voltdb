@@ -19,25 +19,31 @@ package org.voltdb.iv2;
 
 import java.util.concurrent.LinkedBlockingDeque;
 
-import org.voltcore.messaging.VoltMessage;
 
-import org.voltdb.messaging.Iv2SPInitMessage;
+import org.voltdb.messaging.InitiateResponseMessage;
+import org.voltdb.messaging.InitiateTaskMessage;
 
 public class PrimaryRole implements InitiatorRole {
 
-    private LinkedBlockingDeque<Iv2SPInitMessage> initiations =
-        new LinkedBlockingDeque<Iv2SPInitMessage>();
+    private long txnIdSequence = 0;
+
+    private LinkedBlockingDeque<InitiateTaskMessage> initiations =
+        new LinkedBlockingDeque<InitiateTaskMessage>();
 
     @Override
-    public void offer(VoltMessage message)
+    public void offerInitiateTask(InitiateTaskMessage message)
     {
-        if (message instanceof Iv2SPInitMessage) {
-            initiations.offer((Iv2SPInitMessage)message);
-        }
+        message.setTransactionId(txnIdSequence++);
+        initiations.offer((InitiateTaskMessage)message);
     }
 
     @Override
-    public Iv2SPInitMessage poll()
+    public void offerResponse(InitiateResponseMessage message)
+    {
+    }
+
+    @Override
+    public InitiateTaskMessage poll()
     {
         return initiations.poll();
     }

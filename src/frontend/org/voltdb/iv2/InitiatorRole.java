@@ -17,12 +17,18 @@
 
 package org.voltdb.iv2;
 
-import org.voltcore.messaging.VoltMessage;
 
-import org.voltdb.messaging.Iv2SPInitMessage;
+import org.voltdb.messaging.InitiateResponseMessage;
+import org.voltdb.messaging.InitiateTaskMessage;
 
 public interface InitiatorRole
 {
-    public void offer(VoltMessage message);
-    public Iv2SPInitMessage poll();
+    /** Forward a new transaction */
+    public void offerInitiateTask(InitiateTaskMessage message);
+
+    /** Forward a transaction completion */
+    public void offerResponse(InitiateResponseMessage message);
+
+    /** Request the next new transaction to execute */
+    public InitiateTaskMessage poll();
 }

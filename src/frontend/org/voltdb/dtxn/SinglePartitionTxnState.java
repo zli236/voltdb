@@ -21,7 +21,6 @@ import java.util.HashSet;
 
 import org.voltcore.messaging.Mailbox;
 import org.voltcore.messaging.MessagingException;
-import org.voltcore.messaging.TransactionInfoBaseMessage;
 import org.voltdb.ClientResponseImpl;
 import org.voltdb.ExecutionSite;
 import org.voltdb.StoredProcedureInvocation;
@@ -37,7 +36,7 @@ public class SinglePartitionTxnState extends TransactionState {
 
     public SinglePartitionTxnState(Mailbox mbox,
                                    ExecutionSite site,
-                                   TransactionInfoBaseMessage task)
+                                   InitiateTaskMessage task)
     {
         super(mbox, site, task);
         assert(task instanceof InitiateTaskMessage) :

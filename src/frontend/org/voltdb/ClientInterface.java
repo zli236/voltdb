@@ -26,6 +26,7 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +66,8 @@ import org.voltcore.network.WriteStream;
 import org.voltcore.utils.EstTime;
 import org.voltcore.utils.MiscUtils;
 import org.voltcore.utils.Pair;
+import org.voltdb.messaging.InitiateResponseMessage;
+import org.voltdb.messaging.InitiateTaskMessage;
 import org.voltdb.messaging.Iv2SPInitMessage;
 import org.voltdb.SystemProcedureCatalog.Config;
 import org.voltdb.catalog.CatalogMap;
@@ -79,7 +82,6 @@ import org.voltdb.compiler.AdHocPlannerWork;
 import org.voltdb.compiler.AsyncCompilerResult;
 import org.voltdb.compiler.CatalogChangeResult;
 import org.voltdb.compiler.CatalogChangeWork;
-import org.voltdb.dtxn.SimpleDtxnInitiator;
 import org.voltdb.dtxn.TransactionInitiator;
 import org.voltdb.export.ExportManager;
 import org.voltcore.logging.Level;
@@ -113,7 +115,6 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
     private static final VoltLogger networkLog = new VoltLogger("NETWORK");
     private final ClientAcceptor m_acceptor;
     private ClientAcceptor m_adminAcceptor;
-    private final TransactionInitiator m_initiator;
     private final CopyOnWriteArrayList<Connection> m_connections = new CopyOnWriteArrayList<Connection>();
     private final SnapshotDaemon m_snapshotDaemon = new SnapshotDaemon();
     private final SnapshotDaemonAdapter m_snapshotDaemonAdapter = new SnapshotDaemonAdapter();
@@ -695,7 +696,6 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
         @Override
         public void stopped(Connection c) {
             m_numConnections.decrementAndGet();
-            m_initiator.removeConnectionStats(connectionId());
         }
 
         @Override
@@ -781,7 +781,14 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
     }
 
 
-    // Wrap API to SimpleDtxnInitiator - mostly for the future
+
+    private AtomicLong m_sequence = new AtomicLong();
+
+    // map the client interface sequence number to the Pair(clientHandle, Connection)
+    private ConcurrentHashMap<Long, Pair<Long, Connection>> m_sequenceToConnection
+        = new ConcurrentHashMap<Long, Pair<Long, Connection>>();
+
+    // route a new transaction to an initiator
     public  boolean createTransaction(
             final long connectionId,
             final String connectionHostname,
@@ -792,15 +799,28 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
             final boolean isEveryPartition,
             final int partitions[],
             final int numPartitions,
-            final Object clientData,
+            final Connection connection,
             final int messageSize,
             final long now)
     {
         if (isSinglePartition) {
             long hsid = m_catalogContext.get().siteTracker.
                 getPrimaryInitiatorHSIdForPartition(partitions[0]);
-            Iv2SPInitMessage initMsg =
-                new Iv2SPInitMessage(connectionId, invocation);
+
+            // response path must find the connection for a sequence no.
+            long handle = m_sequence.incrementAndGet();
+            m_sequenceToConnection.put(handle,
+                    new Pair<Long, Connection>(invocation.getClientHandle(), connection));
+
+            InitiateTaskMessage initMsg =
+                new InitiateTaskMessage(
+                        hsid, // hsid of the initiator
+                        hsid, // hsid of the coordinator
+                        Long.MIN_VALUE, // txnid - assigned by initiator
+                        m_mailbox.getHSId(), // mailbox for eventual client response
+                        handle, // handle to pair response
+                        isReadOnly, isSinglePartition, invocation);
+
             try {
                 m_mailbox.send(hsid, initMsg);
             }
@@ -828,12 +848,12 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
             HostMessenger messenger,
             CatalogContext context,
             ReplicationRole replicationRole,
-            SimpleDtxnInitiator initiator,
             int hostCount,
             int port,
             int adminPort,
-            long timestampTestingSalt) throws Exception {
-
+            long timestampTestingSalt)
+        throws Exception
+    {
         // create a list of all partitions
         int[] allPartitions = new int[context.numberOfPartitions];
         int index = 0;
@@ -846,18 +866,16 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
          * Construct the runnables so they have access to the list of connections
          */
         final ClientInterface ci = new ClientInterface(
-           port, adminPort, context, messenger, replicationRole, initiator, allPartitions);
+           port, adminPort, context, messenger, replicationRole, allPartitions);
 
-        initiator.setClientInterface(ci);
         return ci;
     }
 
     ClientInterface(int port, int adminPort, CatalogContext context, HostMessenger messenger,
-                    ReplicationRole replicationRole, TransactionInitiator initiator,
-                    int[] allPartitions) throws Exception
+                    ReplicationRole replicationRole, int[] allPartitions)
+        throws Exception
     {
         m_catalogContext.set(context);
-        m_initiator = initiator;
 
         // pre-allocate single partition array
         m_allPartitions = allPartitions;
@@ -870,7 +888,22 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
             LinkedBlockingDeque<VoltMessage> m_d = new LinkedBlockingDeque<VoltMessage>();
             @Override
             public void deliver(final VoltMessage message) {
-                m_d.offer(message);
+                if (message instanceof InitiateResponseMessage) {
+                    // foward response; copy is annoying. want slice of response.
+                    InitiateResponseMessage response = (InitiateResponseMessage)message;
+                    Pair<Long, Connection> clientData = m_sequenceToConnection.remove(response.getClientInterfaceHandle());
+                    response.getClientResponseData().setClientHandle(clientData.getFirst());
+
+                    ByteBuffer results = ByteBuffer.allocate(response.getClientResponseData().getSerializedSize() + 4);
+                    results.putInt(results.capacity() - 4);
+                    response.getClientResponseData().flattenToBuffer(results);
+                    results.flip();
+                    clientData.getSecond().writeStream().enqueue(results);
+                }
+                else {
+                    // store everything else for processing later
+                    m_d.offer(message);
+                }
             }
             @Override
             public VoltMessage recv() {
@@ -1366,7 +1399,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
         createTransaction(plannedStmt.connectionId, plannedStmt.hostname,
                 plannedStmt.adminConnection,
                 task, false, isSinglePartition, false, partitions,
-                partitions.length, plannedStmt.clientData,
+                partitions.length, (Connection)plannedStmt.clientData,
                 0, EstTime.currentTimeMillis());
 
         // cache this plan, but don't hold onto the connection object
@@ -1465,7 +1498,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
                     createTransaction(changeResult.connectionId, changeResult.hostname,
                             changeResult.adminConnection,
                             task, false, true, true, m_allPartitions,
-                            m_allPartitions.length, changeResult.clientData, 0,
+                            m_allPartitions.length, (Connection)changeResult.clientData, 0,
                             EstTime.currentTimeMillis());
                 }
                 else {
@@ -1495,13 +1528,8 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
     private long m_tickCounter = 0;
 
     public final void processPeriodicWork() {
-        final long time = m_initiator.tick();
-        m_tickCounter++;
-        if (m_tickCounter % 20 == 0) {
-            checkForDeadConnections(time);
-        }
-        //System.out.printf("Sending tick after %d ms pause.\n", delta);
-        //System.out.flush();
+        // IV2 XXX Convert this to periodic work pool task.
+        // checkForDeadConnections(time);
 
         // check for catalog updates
         if (m_shouldUpdateCatalog.compareAndSet(true, false)) {
@@ -1732,7 +1760,8 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
         Map<Long, Pair<String, long[]>> client_stats =
             new HashMap<Long, Pair<String, long[]>>();
 
-        Map<Long, long[]> inflight_txn_stats = m_initiator.getOutstandingTxnStats();
+        Map<Long, long[]> inflight_txn_stats = new HashMap<Long, long[]>();
+            // m_initiator.getOutstandingTxnStats();
 
         // put all the live connections in the stats map, then fill in admin and
         // outstanding txn info from the inflight stats

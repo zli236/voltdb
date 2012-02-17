@@ -34,6 +34,8 @@ public class InitiateResponseMessage extends VoltMessage {
     private long m_txnId;
     private long m_initiatorHSId;
     private long m_coordinatorHSId;
+    private long m_clientInterfaceHSId;
+    private long m_clientInterfaceHandle;
     private boolean m_commit;
     private boolean m_recovering;
     private ClientResponseImpl m_response;
@@ -53,9 +55,11 @@ public class InitiateResponseMessage extends VoltMessage {
      * metadata from.
      */
     public InitiateResponseMessage(InitiateTaskMessage task) {
-        m_txnId = task.getTxnId();
+        m_txnId = task.getTransactionId();
         m_initiatorHSId = task.getInitiatorHSId();
         m_coordinatorHSId = task.getCoordinatorHSId();
+        m_clientInterfaceHSId = task.getClientInterfaceHSId();
+        m_clientInterfaceHandle = task.getClientInterfaceHandle();
         m_subject = Subject.DEFAULT.getId();
     }
 
@@ -73,6 +77,14 @@ public class InitiateResponseMessage extends VoltMessage {
 
     public long getCoordinatorHSId() {
         return m_coordinatorHSId;
+    }
+
+    public long getClientInterfaceHSId() {
+        return m_clientInterfaceHSId;
+    }
+
+    public long getClientInterfaceHandle() {
+        return m_clientInterfaceHandle;
     }
 
     public boolean shouldCommit() {
@@ -103,15 +115,15 @@ public class InitiateResponseMessage extends VoltMessage {
     @Override
     public int getSerializedSize()
     {
-        int msgsize = super.getSerializedSize();
-        msgsize += 8 // txnId
-            + 8 // initiator HSId
-            + 8 // coordinator HSId
-            + 1; // node recovering indication
-
-        msgsize += m_response.getSerializedSize();
-
-        return msgsize;
+        return
+            super.getSerializedSize()
+            + 8 // m_txnId
+            + 8 // m_initiatorHSId
+            + 8 // m_coordinatorHSId
+            + 8 // m_clientInterfaceHandle
+            + 1 // m_recovering
+            + m_response.getSerializedSize()
+            ;
     }
 
     @Override
@@ -121,6 +133,7 @@ public class InitiateResponseMessage extends VoltMessage {
         buf.putLong(m_txnId);
         buf.putLong(m_initiatorHSId);
         buf.putLong(m_coordinatorHSId);
+        buf.putLong(m_clientInterfaceHandle);
         buf.put((byte) (m_recovering == true ? 1 : 0));
         m_response.flattenToBuffer(buf);
         assert(buf.capacity() == buf.position());
@@ -133,6 +146,7 @@ public class InitiateResponseMessage extends VoltMessage {
         m_txnId = buf.getLong();
         m_initiatorHSId = buf.getLong();
         m_coordinatorHSId = buf.getLong();
+        m_clientInterfaceHandle = buf.getLong();
         m_recovering = buf.get() == 1;
         m_response = new ClientResponseImpl();
         m_response.initFromBuffer(buf);
@@ -148,14 +162,9 @@ public class InitiateResponseMessage extends VoltMessage {
         sb.append(m_txnId);
         sb.append("\n INITIATOR HSID: " + MiscUtils.hsIdToString(m_initiatorHSId));
         sb.append("\n COORDINATOR HSID: " + MiscUtils.hsIdToString(m_coordinatorHSId));
-
-        if (m_commit)
-            sb.append("\n  COMMIT");
-        else
-            sb.append("\n  ROLLBACK/ABORT, ");
-
-        // TODO More work here
-
+        sb.append("\n CI HANDLE: " + m_clientInterfaceHandle);
+        if (m_commit) sb.append("\n  COMMIT");
+        else sb.append("\n  ROLLBACK/ABORT, ");
         return sb.toString();
     }
 }

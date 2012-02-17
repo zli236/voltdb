@@ -22,9 +22,9 @@ import java.util.List;
 import java.util.Map;
 
 import org.voltcore.messaging.Mailbox;
-import org.voltcore.messaging.TransactionInfoBaseMessage;
 import org.voltdb.ClientResponseImpl;
 import org.voltdb.ExecutionSite;
+import org.voltdb.messaging.InitiateTaskMessage;
 import org.voltdb.StoredProcedureInvocation;
 import org.voltdb.VoltTable;
 import org.voltdb.messaging.CompleteTransactionMessage;
@@ -59,9 +59,9 @@ public abstract class TransactionState extends OrderableTransaction  {
      */
     protected TransactionState(Mailbox mbox,
                                ExecutionSite site,
-                               TransactionInfoBaseMessage notice)
+                               InitiateTaskMessage notice)
     {
-        super(notice.getTxnId(), notice.getInitiatorHSId());
+        super(notice.getTransactionId(), notice.getInitiatorHSId());
         m_mbox = mbox;
         m_site = site;
         coordinatorSiteId = notice.getCoordinatorHSId();

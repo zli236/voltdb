@@ -71,7 +71,7 @@ public class MultiPartitionParticipantTxnState extends TransactionState {
     }
 
     public MultiPartitionParticipantTxnState(Mailbox mbox, ExecutionSite site,
-                                             TransactionInfoBaseMessage notice)
+                                             InitiateTaskMessage notice)
     {
         super(mbox, site, notice);
         m_hsId = site.getSiteId();

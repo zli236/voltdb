@@ -21,10 +21,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.voltcore.messaging.TransactionInfoBaseMessage;
+import org.voltcore.messaging.VoltMessage;
 import org.voltcore.utils.MiscUtils;
 import org.voltdb.StoredProcedureInvocation;
-
 
 /**
  * Message from an initiator to an execution site, instructing the
@@ -32,66 +31,111 @@ import org.voltdb.StoredProcedureInvocation;
  * execution sites if needed.
  *
  */
-public class InitiateTaskMessage extends TransactionInfoBaseMessage {
+public class InitiateTaskMessage extends VoltMessage
+{
+    private long m_initiatorHSId;
+    private long m_coordinatorHSId;
+    private long m_transactionId;
+    private long m_clientInterfaceHSId;
+    private long m_clientInterfaceHandle;
+    private boolean m_isReadOnly;
+    private boolean m_isSinglePartition;
+    private StoredProcedureInvocation m_invocation;
 
-    boolean m_isSinglePartition;
-    StoredProcedureInvocation m_invocation;
-    long m_lastSafeTxnID; // this is the largest txn acked by all partitions running the java for it
     AtomicBoolean m_isDurable;
 
     /** Empty constructor for de-serialization */
-    InitiateTaskMessage() {
+    InitiateTaskMessage()
+    {
         super();
     }
 
-    public InitiateTaskMessage(long initiatorHSId,
-                        long coordinatorHSId,
-                        long txnId,
-                        boolean isReadOnly,
-                        boolean isSinglePartition,
-                        StoredProcedureInvocation invocation,
-                        long lastSafeTxnID) {
-        super(initiatorHSId, coordinatorHSId, txnId, isReadOnly);
+    public InitiateTaskMessage(
+            long initiatorHSId,
+            long coordinatorHSId,
+            long txnId,
+            long clientInterfaceHSId,
+            long clientInterfaceHandle,
+            boolean isReadOnly,
+            boolean isSinglePartition,
+            StoredProcedureInvocation invocation)
+    {
+        m_initiatorHSId = initiatorHSId;
+        m_coordinatorHSId = coordinatorHSId;
+        m_transactionId = txnId;
+        m_clientInterfaceHSId = clientInterfaceHSId;
+        m_clientInterfaceHandle = clientInterfaceHandle;
+        m_isReadOnly = isReadOnly;
         m_isSinglePartition = isSinglePartition;
         m_invocation = invocation;
-        m_lastSafeTxnID = lastSafeTxnID;
     }
 
-    @Override
-    public boolean isReadOnly() {
+    public long getInitiatorHSId()
+    {
+        return m_initiatorHSId;
+    }
+
+    public long getCoordinatorHSId()
+    {
+        return m_coordinatorHSId;
+    }
+
+    public long getTransactionId()
+    {
+        return m_transactionId;
+    }
+
+    // initiator sets txnid after clientinterface sends msg.
+    public void setTransactionId(long txnId)
+    {
+        m_transactionId = txnId;
+    }
+
+    public long getClientInterfaceHSId()
+    {
+        return m_clientInterfaceHSId;
+    }
+
+    public long getClientInterfaceHandle()
+    {
+        return m_clientInterfaceHandle;
+    }
+
+    public boolean isReadOnly()
+    {
         return m_isReadOnly;
     }
 
-    @Override
-    public boolean isSinglePartition() {
+    public boolean isSinglePartition()
+    {
         return m_isSinglePartition;
     }
 
-    public StoredProcedureInvocation getStoredProcedureInvocation() {
+    public StoredProcedureInvocation getStoredProcedureInvocation()
+    {
         return m_invocation;
     }
 
-    public String getStoredProcedureName() {
-        assert(m_invocation != null);
+    public String getStoredProcedureName()
+    {
         return m_invocation.getProcName();
     }
 
-    public int getParameterCount() {
+    public int getParameterCount()
+    {
         assert(m_invocation != null);
         if (m_invocation.getParams() == null)
             return 0;
         return m_invocation.getParams().toArray().length;
     }
 
-    public Object[] getParameters() {
+    public Object[] getParameters()
+    {
         return m_invocation.getParams().toArray();
     }
 
-    public long getLastSafeTxnId() {
-        return m_lastSafeTxnID;
-    }
-
-    public AtomicBoolean getDurabilityFlag() {
+    public AtomicBoolean getDurabilityFlag()
+    {
         assert(!m_isReadOnly);
         if (m_isDurable == null) {
             m_isDurable = new AtomicBoolean();
@@ -99,29 +143,39 @@ public class InitiateTaskMessage extends TransactionInfoBaseMessage {
         return m_isDurable;
     }
 
-    public AtomicBoolean getDurabilityFlagIfItExists() {
+    public AtomicBoolean getDurabilityFlagIfItExists()
+    {
         return m_isDurable;
     }
+
 
     @Override
     public int getSerializedSize()
     {
-        int msgsize = super.getSerializedSize();
-        msgsize += 8 // m_lastSafeTxnId
-            + 1; // is single partition flag?
-
-        msgsize += m_invocation.getSerializedSize();
-
-        return msgsize;
+        return
+            super.getSerializedSize()
+            + 8 // initiatorHSId
+            + 8 // coordinatorHSId
+            + 8 // transactionId
+            + 8 // clientInterfaceHSId
+            + 8 // clientInterfaceHandle
+            + 1 // isReadOnly
+            + 1 // isSinglePartition
+            + m_invocation.getSerializedSize()
+            ;
     }
 
     @Override
     public void flattenToBuffer(ByteBuffer buf) throws IOException
     {
         buf.put(VoltDbMessageFactory.INITIATE_TASK_ID);
-        super.flattenToBuffer(buf);
 
-        buf.putLong(m_lastSafeTxnID);
+        buf.putLong(m_initiatorHSId);
+        buf.putLong(m_coordinatorHSId);
+        buf.putLong(m_transactionId);
+        buf.putLong(m_clientInterfaceHSId);
+        buf.putLong(m_clientInterfaceHandle);
+        buf.put(m_isReadOnly ? (byte) 1 : (byte) 0);
         buf.put(m_isSinglePartition ? (byte) 1 : (byte) 0);
         m_invocation.flattenToBuffer(buf);
 
@@ -130,17 +184,23 @@ public class InitiateTaskMessage extends TransactionInfoBaseMessage {
     }
 
     @Override
-    public void initFromBuffer(ByteBuffer buf) throws IOException {
-        super.initFromBuffer(buf);
-
-        m_lastSafeTxnID = buf.getLong();
+    public void initFromBuffer(ByteBuffer buf) throws IOException
+    {
+        m_initiatorHSId = buf.getLong();
+        m_coordinatorHSId = buf.getLong();
+        m_transactionId = buf.getLong();
+        m_clientInterfaceHSId = buf.getLong();
+        m_clientInterfaceHandle = buf.getLong();
+        m_isReadOnly = buf.get() == 1;
         m_isSinglePartition = buf.get() == 1;
+
         m_invocation = new StoredProcedureInvocation();
         m_invocation.initFromBuffer(buf);
     }
 
     @Override
-    public String toString() {
+    public String toString()
+    {
         StringBuilder sb = new StringBuilder();
 
         sb.append("INITITATE_TASK (FROM ");
@@ -148,7 +208,7 @@ public class InitiateTaskMessage extends TransactionInfoBaseMessage {
         sb.append(" TO ");
         sb.append(MiscUtils.hsIdToString(getCoordinatorHSId()));
         sb.append(") FOR TXN ");
-        sb.append(m_txnId);
+        sb.append(getTransactionId());
 
         sb.append("\n");
         if (m_isReadOnly)
@@ -170,7 +230,8 @@ public class InitiateTaskMessage extends TransactionInfoBaseMessage {
         return sb.toString();
     }
 
-    public ByteBuffer getSerializedParams() {
+    public ByteBuffer getSerializedParams()
+    {
         return m_invocation.getSerializedParams();
     }
 }

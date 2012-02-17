@@ -24,9 +24,7 @@ public abstract class VoltMessage
 {
     // place holder for destination site ids when using multi-cast
     final public static int SEND_TO_MANY = -2;
-
     public long m_sourceHSId = -1;
-
     protected byte m_subject;
 
     public int getSerializedSize() {
