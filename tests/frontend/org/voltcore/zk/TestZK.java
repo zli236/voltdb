@@ -242,17 +242,17 @@ public class TestZK extends ZKTestBase {
         LeaderElector elector1 = new LeaderElector(zk, "/election", "node", null, null);
         LeaderElector elector2 = new LeaderElector(zk2, "/election", "node", null, null);
         LeaderElector elector3 = new LeaderElector(zk3, "/election", "node", null, null);
-        elector1.start();
-        elector2.start();
-        elector3.start();
+        elector1.start(true);
+        elector2.start(true);
+        elector3.start(true);
 
         assertTrue(elector1.isLeader());
         assertFalse(elector2.isLeader());
         assertFalse(elector3.isLeader());
 
-        elector1.done();
-        elector2.done();
-        elector3.done();
+        elector1.shutdown();
+        elector2.shutdown();
+        elector3.shutdown();
 
         zk.close();
         zk2.close();
@@ -285,9 +285,9 @@ public class TestZK extends ZKTestBase {
         LeaderElector elector1 = new LeaderElector(zk, "/election", "node", new byte[0], null);
         LeaderElector elector2 = new LeaderElector(zk2, "/election", "node", new byte[0], r2);
         LeaderElector elector3 = new LeaderElector(zk3, "/election", "node", new byte[0], r3);
-        elector1.start();
-        elector2.start();
-        elector3.start();
+        elector1.start(true);
+        elector2.start(true);
+        elector3.start(true);
 
         assertTrue(elector1.isLeader());
         assertFalse(elector2.isLeader());
@@ -326,9 +326,9 @@ public class TestZK extends ZKTestBase {
         LeaderElector elector1 = new LeaderElector(zk, "/election", "node", new byte[0], null);
         LeaderElector elector2 = new LeaderElector(zk2, "/election", "node", new byte[0], null);
         LeaderElector elector3 = new LeaderElector(zk3, "/election", "node", new byte[0], r3);
-        elector1.start();
-        elector2.start();
-        elector3.start();
+        elector1.start(true);
+        elector2.start(true);
+        elector3.start(true);
 
         assertTrue(elector1.isLeader());
         assertFalse(elector2.isLeader());

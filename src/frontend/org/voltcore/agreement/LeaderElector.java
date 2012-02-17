@@ -21,6 +21,7 @@ import java.util.ListIterator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.zookeeper_voltpatches.CreateMode;
 import org.apache.zookeeper_voltpatches.KeeperException;
@@ -89,13 +90,16 @@ public class LeaderElector {
      * "http://zookeeper.apache.org/doc/trunk/recipes.html#sc_leaderElection"
      * >Zookeeper Leader Election</a>
      *
+     * @param block true for blocking operation, false for nonblocking
      * @throws Exception
      */
-    public void start() throws Exception {
+    public void start(boolean block) throws Exception {
         node = zk.create(ZKUtil.joinZKPath(dir, prefix + "_"), data,
                          Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
         Future<?> task = es.submit(eventHandler);
-        task.get();
+        if (block) {
+            task.get();
+        }
     }
 
     public boolean isLeader() {
@@ -115,13 +119,15 @@ public class LeaderElector {
     }
 
     /**
-     * Deletes the ephemeral node.
+     * Deletes the ephemeral node. Make sure that no future watches will fire.
      *
      * @throws InterruptedException
      * @throws KeeperException
      */
-    public void done() throws InterruptedException, KeeperException {
+    public void shutdown() throws InterruptedException, KeeperException {
         zk.delete(node, -1);
+        es.shutdown();
+        es.awaitTermination(356, TimeUnit.DAYS);
     }
 
     /**

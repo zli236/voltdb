@@ -498,7 +498,7 @@ SnapshotCompletionInterest {
     void enterRestore() {
         m_leaderElector = new LeaderElector(m_zk, RESTORE_BARRIER, "node", new byte[0], null);
         try {
-            m_leaderElector.start();
+            m_leaderElector.start(true);
         } catch (Exception e) {
             VoltDB.crashGlobalVoltDB("Failed to create Zookeeper node: " + e.getMessage(),
                                      false, e);
@@ -511,7 +511,7 @@ SnapshotCompletionInterest {
      */
     private void exitRestore() {
         try {
-            m_leaderElector.done();
+            m_leaderElector.shutdown();
         } catch (Exception ignore) {}
 
         LOG.debug("Waiting for all hosts to complete restore");

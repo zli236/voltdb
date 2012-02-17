@@ -51,7 +51,7 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
      * @throws Exception
      */
     public void start() throws Exception {
-        this.elector.start();
+        this.elector.start(true);
         if (this.elector.isLeader()) {
             role = new PrimaryRole();
         } else {
