@@ -18,6 +18,7 @@ package org.voltdb.iv2;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -134,18 +135,24 @@ public class InitiatorLeaderMonitor {
      * @throws InterruptedException
      */
     private void watchPartitions() throws KeeperException, InterruptedException {
+        HashSet<Integer> existingPartitions = new HashSet<Integer>(initiatorLeaders.keySet());
         List<String> partitions = zk.getChildren(VoltZK.leaders_initiators, partitionWatcher);
         Map<Integer, ChildrenCallback> callbacks = new HashMap<Integer, ChildrenCallback>();
         for (String partitionString : partitions) {
             int partition = VoltZK.getPartitionFromElectionDir(partitionString);
             ChildrenCallback cb = new ChildrenCallback();
 
-            if (!initiatorLeaders.containsKey(partition)) {
+            if (!existingPartitions.contains(partition)) {
                 String path = ZKUtil.joinZKPath(VoltZK.leaders_initiators, partitionString);
-                zk.getChildren(path, false, cb, new LeaderWatcher(partition, path));
+                zk.getChildren(path, new LeaderWatcher(partition, path), cb, null);
                 callbacks.put(partition, cb);
+            } else {
+                existingPartitions.remove(partition);
             }
         }
+
+        // now existingPartitions only contains partitions that just disappeared
+        initiatorLeaders.keySet().removeAll(existingPartitions);
 
         for (Entry<Integer, ChildrenCallback> e : callbacks.entrySet()) {
             processInitiatorLeader(e.getKey(), e.getValue());
@@ -155,7 +162,7 @@ public class InitiatorLeaderMonitor {
     private void watchInitiatorLeader(int partition, String path)
     throws KeeperException, InterruptedException {
         ChildrenCallback cb = new ChildrenCallback();
-        zk.getChildren(path, false, cb, new LeaderWatcher(partition, path));
+        zk.getChildren(path, new LeaderWatcher(partition, path), cb, null);
         processInitiatorLeader(partition, cb);
     }
 
@@ -174,6 +181,9 @@ public class InitiatorLeaderMonitor {
             } catch (NumberFormatException e) {
                 hostLog.error("Unable to get initiator leader HSId from node " + leader);
             }
+        } else {
+            // No leader for this partition
+            initiatorLeaders.remove(partition);
         }
     }
 }
