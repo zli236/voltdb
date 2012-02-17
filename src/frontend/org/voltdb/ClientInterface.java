@@ -64,6 +64,7 @@ import org.voltcore.network.VoltProtocolHandler;
 import org.voltcore.network.WriteStream;
 import org.voltcore.utils.EstTime;
 import org.voltcore.utils.Pair;
+import org.voltdb.iv2.InitiatorLeaderMonitor;
 import org.voltdb.messaging.Iv2SPInitMessage;
 import org.voltdb.SystemProcedureCatalog.Config;
 import org.voltdb.catalog.CatalogMap;
@@ -113,6 +114,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
     private final ClientAcceptor m_acceptor;
     private ClientAcceptor m_adminAcceptor;
     private final TransactionInitiator m_initiator;
+    private final InitiatorLeaderMonitor m_initiatorLeaderMonitor;
     private final CopyOnWriteArrayList<Connection> m_connections = new CopyOnWriteArrayList<Connection>();
     private final SnapshotDaemon m_snapshotDaemon = new SnapshotDaemon();
     private final SnapshotDaemonAdapter m_snapshotDaemonAdapter = new SnapshotDaemonAdapter();
@@ -796,11 +798,16 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
             final long now)
     {
         if (isSinglePartition) {
-            long hsid = 0; // TODO: should be set to the leader hsid
+            Long leader = m_initiatorLeaderMonitor.getLeader(partitions[0]);
+            if (leader == null) {
+                hostLog.error("Failed to find the initiator leader of partition " + partitions[0]);
+                return false;
+            }
+
             Iv2SPInitMessage initMsg =
                 new Iv2SPInitMessage(connectionId, invocation);
             try {
-                m_mailbox.send(hsid, initMsg);
+                m_mailbox.send(leader, initMsg);
             }
             catch (MessagingException e) {
                 hostLog.debug("Failed to initiate transaction for partition " + partitions[0] +
@@ -856,6 +863,8 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
     {
         m_catalogContext.set(context);
         m_initiator = initiator;
+        m_initiatorLeaderMonitor = new InitiatorLeaderMonitor(messenger.getZK());
+        m_initiatorLeaderMonitor.start();
 
         // pre-allocate single partition array
         m_allPartitions = allPartitions;

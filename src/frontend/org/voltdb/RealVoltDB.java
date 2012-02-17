@@ -564,6 +564,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, Mailb
             ClusterConfig.partitionsForHost(topo, m_messenger.getHostId());
         for (Integer partition : partitions) {
             InitiatorMailbox mailbox = new InitiatorMailbox(m_messenger, partition);
+            mailbox.start();
             m_messenger.createMailbox(null, mailbox);
             mailboxes.put(partition, mailbox);
             registerInitiatorMailbox(mailbox.getHSId(), partition);

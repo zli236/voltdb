@@ -123,13 +123,17 @@ public class VoltZK {
     {
         String path = components[0];
         for (int i=1; i < components.length; i++) {
-            path = path + "/" + components[i];
+            path = ZKUtil.joinZKPath(path, components[i]);
         }
         return path;
     }
 
     public static String electionDirForPartition(int partition) {
         return path(leaders_initiators, "partition_" + partition);
+    }
+
+    public static int getPartitionFromElectionDir(String partitionDir) {
+        return Integer.parseInt(partitionDir.substring("partition_".length()));
     }
 
     /**

@@ -17,29 +17,46 @@
 
 package org.voltdb.iv2;
 
+import org.voltcore.agreement.LeaderElector;
+import org.voltcore.agreement.LeaderNoticeHandler;
 import org.voltcore.messaging.HostMessenger;
 import org.voltcore.messaging.Mailbox;
 import org.voltcore.messaging.MessagingException;
 import org.voltcore.messaging.Subject;
 import org.voltcore.messaging.VoltMessage;
+import org.voltdb.VoltZK;
 
 /**
  * InitiatorMailbox accepts initiator work and proxies it to the
  * configured InitiationRole.
  */
-public class InitiatorMailbox implements Mailbox
+public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
 {
     private final int partitionId;
     private final HostMessenger messenger;
+    private LeaderElector elector;
     private long hsId;
 
     // for now, there are only primary initiatiors.
-    private InitiatorRole role = new PrimaryRole();
+    private InitiatorRole role = null;
 
     public InitiatorMailbox(HostMessenger messenger, int partitionId)
     {
         this.messenger = messenger;
         this.partitionId = partitionId;
+    }
+
+    /**
+     * Start leader election
+     * @throws Exception
+     */
+    public void start() throws Exception {
+        this.elector.start();
+        if (this.elector.isLeader()) {
+            role = new PrimaryRole();
+        } else {
+            // TODO: replica
+        }
     }
 
     @Override
@@ -114,6 +131,15 @@ public class InitiatorMailbox implements Mailbox
     public void setHSId(long hsId)
     {
         this.hsId = hsId;
+        String path = VoltZK.electionDirForPartition(this.partitionId);
+        elector = new LeaderElector(this.messenger.getZK(), path,
+                                    Long.toString(this.hsId), null, this);
+    }
+
+    @Override
+    public void becomeLeader() {
+        // TODO: sophisticated physics happening here
+        role = new PrimaryRole();
     }
 
 

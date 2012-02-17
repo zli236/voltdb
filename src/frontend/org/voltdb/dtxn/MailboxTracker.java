@@ -34,7 +34,6 @@ import org.voltcore.VoltDB;
 import org.voltcore.agreement.ZKUtil;
 import org.voltcore.agreement.ZKUtil.ByteArrayCallback;
 import org.voltcore.agreement.ZKUtil.ChildrenCallback;
-import org.voltcore.logging.VoltLogger;
 import org.voltcore.utils.MiscUtils;
 
 import org.voltdb.MailboxNodeContent;
