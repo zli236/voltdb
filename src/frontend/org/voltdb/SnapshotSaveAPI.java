@@ -36,13 +36,12 @@ import org.apache.zookeeper_voltpatches.KeeperException.NodeExistsException;
 import org.apache.zookeeper_voltpatches.ZooDefs.Ids;
 import org.json_voltpatches.JSONObject;
 import org.json_voltpatches.JSONStringer;
-
 import org.voltcore.agreement.ZKUtil;
+import org.voltcore.logging.VoltLogger;
+import org.voltcore.utils.MiscUtils;
 import org.voltdb.ExecutionSite.SystemProcedureExecutionContext;
 import org.voltdb.SnapshotSiteProcessor.SnapshotTableTask;
-import org.voltdb.catalog.Host;
 import org.voltdb.catalog.Table;
-import org.voltcore.logging.VoltLogger;
 import org.voltdb.sysprocs.SnapshotRegistry;
 import org.voltdb.sysprocs.SnapshotSave;
 import org.voltdb.sysprocs.saverestore.SnapshotUtil;
@@ -127,7 +126,7 @@ public class SnapshotSaveAPI
                 context.getExecutionSite().initiateSnapshots(
                         m_taskList,
                         txnId,
-                        context.getExecutionSite().m_context.siteTracker.getAllLiveHosts().size());
+                        context.getExecutionSite().getSiteTracker().getAllHosts().size());
             }
         }
 
@@ -147,7 +146,7 @@ public class SnapshotSaveAPI
                 blockingResult.addRow(
                         context.getHostId(),
                         hostname,
-                        context.getSiteId(),
+                        MiscUtils.getSiteIdFromHSId(context.getSiteId()),
                         status,
                         err);
             } else {
@@ -158,7 +157,7 @@ public class SnapshotSaveAPI
                 blockingResult.addRow(
                         context.getHostId(),
                         hostname,
-                        context.getSiteId(),
+                        MiscUtils.getSiteIdFromHSId(context.getSiteId()),
                         status,
                         err);
             }
@@ -224,7 +223,7 @@ public class SnapshotSaveAPI
         /*
          * Race with the others to create the place where will count down to completing the snapshot
          */
-        int hosts = context.getExecutionSite().m_context.siteTracker.getAllLiveHosts().size();
+        int hosts = context.getExecutionSite().getSiteTracker().getAllHosts().size();
         createSnapshotCompletionNode( nonce, txnId, isTruncation, hosts);
 
         try {
@@ -514,7 +513,7 @@ public class SnapshotSaveAPI
                                              table.getTypeName(),
                                              numPartitions,
                                              table.getIsreplicated(),
-                                             SnapshotUtil.getPartitionsOnHost(context, hostId),
+                                             SnapshotUtil.getPartitionsOnHost(hostId),
                                              CatalogUtil.getVoltTable(table),
                                              txnId);
     }

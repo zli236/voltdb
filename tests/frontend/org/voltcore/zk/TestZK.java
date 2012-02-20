@@ -29,6 +29,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.fail;
 
 import org.voltcore.agreement.LeaderElector;
+import org.voltcore.agreement.LeaderNoticeHandler;
 import org.voltcore.agreement.ZKUtil;
 import org.voltcore.messaging.HostMessenger;
 import org.apache.zookeeper_voltpatches.*;
@@ -238,20 +239,112 @@ public class TestZK extends ZKTestBase {
 
         zk.create("/election", new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 
-        LeaderElector elector1 = new LeaderElector(zk, "/election", new byte[0], null);
-        LeaderElector elector2 = new LeaderElector(zk2, "/election", new byte[0], null);
-        LeaderElector elector3 = new LeaderElector(zk3, "/election", new byte[0], null);
+        LeaderElector elector1 = new LeaderElector(zk, "/election", "node", null, null);
+        LeaderElector elector2 = new LeaderElector(zk2, "/election", "node", null, null);
+        LeaderElector elector3 = new LeaderElector(zk3, "/election", "node", null, null);
+        elector1.start(true);
+        elector2.start(true);
+        elector3.start(true);
 
         assertTrue(elector1.isLeader());
         assertFalse(elector2.isLeader());
         assertFalse(elector3.isLeader());
 
-        elector1.done();
-        elector2.done();
-        elector3.done();
+        elector1.shutdown();
+        elector2.shutdown();
+        elector3.shutdown();
 
         zk.close();
         zk2.close();
+        zk3.close();
+    }
+
+    @Test
+    public void testLeaderFailover() throws Exception {
+        ZooKeeper zk = getClient(0);
+        ZooKeeper zk2 = getClient(1);
+        ZooKeeper zk3 = getClient(2);
+
+        zk.create("/election", new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+
+        final Semaphore sem2 = new Semaphore(0);
+        LeaderNoticeHandler r2 = new LeaderNoticeHandler() {
+            @Override
+            public void becomeLeader() {
+                sem2.release();
+            }
+        };
+        final Semaphore sem3 = new Semaphore(0);
+        LeaderNoticeHandler r3 = new LeaderNoticeHandler() {
+            @Override
+            public void becomeLeader() {
+                sem3.release();
+            }
+        };
+
+        LeaderElector elector1 = new LeaderElector(zk, "/election", "node", new byte[0], null);
+        LeaderElector elector2 = new LeaderElector(zk2, "/election", "node", new byte[0], r2);
+        LeaderElector elector3 = new LeaderElector(zk3, "/election", "node", new byte[0], r3);
+        elector1.start(true);
+        elector2.start(true);
+        elector3.start(true);
+
+        assertTrue(elector1.isLeader());
+        assertFalse(elector2.isLeader());
+        assertFalse(elector3.isLeader());
+
+        // 2 should become the leader
+        zk.close();
+        assertTrue(sem2.tryAcquire(5, TimeUnit.SECONDS));
+        assertTrue(elector2.isLeader());
+        assertEquals(0, sem3.availablePermits());
+
+        // 3 should become the leader now
+        zk2.close();
+        assertTrue(sem3.tryAcquire(5, TimeUnit.SECONDS));
+        assertTrue(elector3.isLeader());
+
+        zk3.close();
+    }
+
+    @Test
+    public void testNonLeaderFailure() throws Exception {
+        ZooKeeper zk = getClient(0);
+        ZooKeeper zk2 = getClient(1);
+        ZooKeeper zk3 = getClient(2);
+
+        zk.create("/election", new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+
+        final Semaphore sem3 = new Semaphore(0);
+        LeaderNoticeHandler r3 = new LeaderNoticeHandler() {
+            @Override
+            public void becomeLeader() {
+                sem3.release();
+            }
+        };
+
+        LeaderElector elector1 = new LeaderElector(zk, "/election", "node", new byte[0], null);
+        LeaderElector elector2 = new LeaderElector(zk2, "/election", "node", new byte[0], null);
+        LeaderElector elector3 = new LeaderElector(zk3, "/election", "node", new byte[0], r3);
+        elector1.start(true);
+        elector2.start(true);
+        elector3.start(true);
+
+        assertTrue(elector1.isLeader());
+        assertFalse(elector2.isLeader());
+        assertFalse(elector3.isLeader());
+
+        // 1 is still the leader
+        zk2.close();
+        assertTrue(elector1.isLeader());
+        assertFalse(elector3.isLeader());
+
+        // 3 should become the leader now
+        zk.close();
+        assertTrue(sem3.tryAcquire(5, TimeUnit.SECONDS));
+        assertTrue(elector3.isLeader());
+        assertEquals(0, sem3.availablePermits());
+
         zk3.close();
     }
 

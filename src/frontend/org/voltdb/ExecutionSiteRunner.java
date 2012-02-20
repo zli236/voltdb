@@ -21,6 +21,7 @@ import java.util.HashSet;
 
 import org.voltcore.messaging.Mailbox;
 import org.voltcore.logging.VoltLogger;
+import org.voltdb.iv2.InitiatorMailbox;
 
 /**
  * A class that instantiates an ExecutionSite and then waits for notification before
@@ -38,9 +39,11 @@ public class ExecutionSiteRunner implements Runnable {
     private final HashSet<Integer> m_failedHostIds;
     private final long m_txnId;
     private final Mailbox m_mailbox;
+    private final InitiatorMailbox m_initiatorMailbox;
 
     public ExecutionSiteRunner(
             Mailbox mailbox,
+            InitiatorMailbox initiatorMailbox,
             final CatalogContext context,
             final String serializedCatalog,
             boolean recovering,
@@ -48,6 +51,7 @@ public class ExecutionSiteRunner implements Runnable {
             HashSet<Integer> failedHostIds,
             VoltLogger hostLog) {
         m_mailbox = mailbox;
+        m_initiatorMailbox = initiatorMailbox;
         m_serializedCatalog = serializedCatalog;
         m_recovering = recovering;
         m_replicationActive = replicationActive;
@@ -62,6 +66,7 @@ public class ExecutionSiteRunner implements Runnable {
         try {
             m_siteObj = new ExecutionSite(VoltDB.instance(),
                                           m_mailbox,
+                                          m_initiatorMailbox,
                                           m_serializedCatalog,
                                           m_recovering,
                                           m_replicationActive,

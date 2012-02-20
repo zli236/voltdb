@@ -35,19 +35,20 @@ import java.util.concurrent.PriorityBlockingQueue;
 
 import org.apache.zookeeper_voltpatches.CreateMode;
 import org.apache.zookeeper_voltpatches.ZooDefs.Ids;
+import org.apache.zookeeper_voltpatches.ZooKeeper;
+import org.json_voltpatches.JSONObject;
 
-import org.voltcore.messaging.HostMessenger;
-import org.voltcore.messaging.Mailbox;
 import org.voltcore.utils.Pair;
 import org.voltdb.catalog.Catalog;
 import org.voltdb.catalog.Cluster;
 import org.voltdb.catalog.Partition;
 import org.voltdb.catalog.Site;
 import org.voltdb.compiler.deploymentfile.DeploymentType;
-import org.voltdb.dtxn.MailboxTracker;
 import org.voltdb.export.ExportManager;
+import org.voltcore.agreement.ZKUtil;
 import org.voltcore.logging.Level;
 import org.voltcore.logging.VoltLogger;
+import org.voltcore.messaging.HostMessenger;
 import org.voltdb.utils.CatalogUtil;
 import org.voltdb.utils.HTTPAdminListener;
 import org.voltdb.utils.LogKeys;
@@ -329,17 +330,23 @@ public class Inits {
                 newCluster.getSites().get(site.getTypeName()).setIsup(site.getIsup());
             }
 
-            // if the dummy catalog doesn't have a 0 txnid (like from a rejoin), use that one
-            long existingCatalogTxnId = m_rvdb.m_catalogContext.m_transactionId;
-            // IV2 XXX Fix this - port catalog version syncing.
-            int existingCatalogVersion = 0; // m_rvdb.m_messenger.getDiscoveredCatalogVersion();
-
-            m_rvdb.m_serializedCatalog = catalog.serialize();
-            MailboxTracker mailboxTracker = m_rvdb.m_catalogContext.siteTracker.getMailboxTracker();
-            m_rvdb.m_catalogContext = new CatalogContext(
-                    existingCatalogTxnId,
-                    catalog, catalogBytes, m_rvdb.m_depCRC, existingCatalogVersion, -1);
-            m_rvdb.m_catalogContext.siteTracker.setMailboxTracker(mailboxTracker);
+            try {
+                long catalogTxnId = org.voltdb.TransactionIdManager.makeIdFromComponents(System.currentTimeMillis(), 0, 0);
+                ZooKeeper zk = m_rvdb.getHostMessenger().getZK();
+                zk.create(
+                        VoltZK.initial_catalog_txnid,
+                        String.valueOf(catalogTxnId).getBytes("UTF-8"),
+                        Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, new ZKUtil.StringCallback(), null);
+                ZKUtil.ByteArrayCallback cb = new ZKUtil.ByteArrayCallback();
+                zk.getData(VoltZK.initial_catalog_txnid, false, cb, null);
+                catalogTxnId = Long.valueOf(new String(cb.getData(), "UTF-8"));
+                m_rvdb.m_serializedCatalog = catalog.serialize();
+                m_rvdb.m_catalogContext = new CatalogContext(
+                        catalogTxnId,
+                        catalog, catalogBytes, m_rvdb.m_depCRC, 0, -1);
+            } catch (Exception e) {
+                VoltDB.crashLocalVoltDB("Error agreeing on starting catalog version", false, e);
+            }
         }
     }
 
@@ -480,6 +487,34 @@ public class Inits {
         }
     }
 
+    /**
+     * Set the port used for replication.
+     * Command line is highest precedence, followed by deployment xml,
+     * finally followed by the default value of 5555.
+     *
+     */
+    class PickReplicationPort extends InitWork {
+        PickReplicationPort() {
+        }
+
+        @Override
+        public void run() {
+            int replicationPort = VoltDB.DEFAULT_DR_PORT;
+
+            if (m_deployment.getReplication() != null) {
+                // set the replication port from the deployment file
+                replicationPort = m_deployment.getReplication().getPort();
+            }
+
+            // allow command line override
+            if (m_config.m_drAgentPortStart > 0)
+                replicationPort = m_config.m_drAgentPortStart;
+
+            // other places use config to figure out the port
+            m_config.m_drAgentPortStart = replicationPort;
+        }
+    }
+
     class SetupReplicationRole extends InitWork {
         SetupReplicationRole() {
         }
@@ -534,24 +569,18 @@ public class Inits {
         @Override
         public void run() {
             try {
-
-                // Hack in the construction of stats and async compiler mailboxes.
-                // they need the agreementSiteId until mailbox construction is
-                // sanitized. Note that the agents (not the mailboxes) are owned
-                // by RealVoltDB
-                Mailbox statsMailbox =
-                    m_rvdb.getStatsAgent().getMailbox(
-                            VoltDB.instance().getHostMessenger(), HostMessenger.STATS_SITE_ID);
-                m_rvdb.m_messenger.createMailbox(
-                        m_rvdb.m_messenger.getHSIdForLocalSite(HostMessenger.STATS_SITE_ID),
-                        statsMailbox);
-
-                Mailbox asyncCompilerMailbox =
-                    m_rvdb.getAsyncCompilerAgent().createMailbox(
-                            VoltDB.instance().getHostMessenger(), HostMessenger.ASYNC_COMPILER_SITE_ID);
-                m_rvdb.m_messenger.createMailbox(
-                        m_rvdb.m_messenger.getHSIdForLocalSite(HostMessenger.ASYNC_COMPILER_SITE_ID),
-                        asyncCompilerMailbox);
+                final long statsAgentHSId = m_rvdb.getHostMessenger().getHSIdForLocalSite(HostMessenger.STATS_SITE_ID);
+                m_rvdb.getStatsAgent().getMailbox(
+                            VoltDB.instance().getHostMessenger(),
+                            statsAgentHSId);
+                JSONObject jsObj = new JSONObject();
+                jsObj.put("HSId", statsAgentHSId);
+                byte[] payload = jsObj.toString(4).getBytes("UTF-8");
+                m_rvdb.getHostMessenger().getZK().create(VoltZK.mailboxes_statsagents_agents, payload,
+                                           Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
+                m_rvdb.getAsyncCompilerAgent().createMailbox(
+                            VoltDB.instance().getHostMessenger(),
+                            m_rvdb.getHostMessenger().getHSIdForLocalSite(HostMessenger.ASYNC_COMPILER_SITE_ID));
             } catch (Exception e) {
                 hostLog.fatal(null, e);
                 System.exit(-1);
@@ -592,7 +621,7 @@ public class Inits {
                                                       cl.getInternalsnapshotpath(),
                                                       snapshotPath,
                                                       allPartitions,
-                                                      m_rvdb.m_catalogContext.siteTracker.getAllLiveHosts());
+                                                      m_rvdb.m_siteTracker.getAllHosts());
                 } catch (IOException e) {
                     VoltDB.crashLocalVoltDB("Unable to establish a ZooKeeper connection: " +
                             e.getMessage(), false, e);

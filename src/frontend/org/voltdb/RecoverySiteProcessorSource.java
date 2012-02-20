@@ -229,7 +229,7 @@ public class RecoverySiteProcessorSource extends RecoverySiteProcessor {
                         }
                     }
                     messageBuffer.flip();
-                    messageBuffer.getInt();
+                    messageBuffer.getLong();//drop source site id
                     final int blockIndex = messageBuffer.getInt();
                     if (m_ackTracker.ackReceived(blockIndex)) {
                         m_allowedBuffers.incrementAndGet();
@@ -563,9 +563,9 @@ public class RecoverySiteProcessorSource extends RecoverySiteProcessor {
             catch (UnsupportedEncodingException e) {}
 
             // write the message
-            ByteBuffer buf = ByteBuffer.allocate(21 + exportUSOBytes.length);
+            ByteBuffer buf = ByteBuffer.allocate(25 + exportUSOBytes.length);
             BBContainer cont = DBBPool.wrapBB(buf);
-            buf.putInt(21 + exportUSOBytes.length); // length prefix
+            buf.putInt(25 + exportUSOBytes.length); // length prefix
             buf.putLong(m_siteId);
             buf.put(kSTOP_AT_TXN);
             buf.putLong(m_stopBeforeTxnId);
@@ -746,13 +746,7 @@ public class RecoverySiteProcessorSource extends RecoverySiteProcessor {
          * First make sure the recovering partition didn't go down before this message was received.
          * Return null so no recovery work is done.
          */
-        boolean isUp = false;
-        for (long up : tracker.getUpExecutionSites()) {
-            if (destinationSiteId == up) {
-                isUp = true;
-            }
-        }
-        if (!isUp) {
+        if (!tracker.getAllSites().contains(destinationSiteId)) {
             return null;
         }
 

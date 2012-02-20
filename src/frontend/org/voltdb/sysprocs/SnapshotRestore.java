@@ -44,7 +44,7 @@ import org.json_voltpatches.JSONObject;
 import org.voltdb.BackendTarget;
 import org.voltdb.DependencyPair;
 
-import org.voltdb.dtxn.MailboxTracker;
+import org.voltdb.dtxn.SiteTracker;
 import org.voltdb.ExecutionSite.SystemProcedureExecutionContext;
 import org.voltdb.HsqlBackend;
 import org.voltdb.ParameterSet;
@@ -74,6 +74,7 @@ import org.voltdb.sysprocs.saverestore.TableSaveFileState;
 import org.voltdb.utils.CatalogUtil;
 import org.voltdb.utils.CompressionService;
 import org.voltdb.utils.VoltFile;
+import org.voltcore.utils.MiscUtils;
 import org.voltcore.utils.Pair;
 import org.voltcore.utils.DBBPool.BBContainer;
 
@@ -248,8 +249,8 @@ public class SnapshotRestore extends VoltSystemProcedure
                 PF_restoreDistributeExportSequenceNumbersResults,
                 this);
         m_cluster = cluster;
-        m_siteId = site.getCorrespondingSiteId();
-        m_hostId = MailboxTracker.getHostForHSId(m_siteId);
+        m_siteId = MiscUtils.getSiteIdFromHSId(site.getCorrespondingSiteId());
+        m_hostId = SiteTracker.getHostForSite(site.getCorrespondingSiteId());
         // XXX HACK GIANT HACK given the current assumption that there is
         // only one database per cluster, I'm asserting this and then
         // skirting around the need to have the database name in order to get
@@ -274,8 +275,8 @@ public class SnapshotRestore extends VoltSystemProcedure
             // Choose the lowest site ID on this host to truncate export data
             int host_id = context.getExecutionSite().getCorrespondingHostId();
             Long lowest_hs_id =
-                    VoltDB.instance().getCatalogContext().siteTracker.
-                    getLowestLiveExecSiteIdForHost(host_id);
+                    VoltDB.instance().getSiteTracker().
+                    getLowestSiteForHost(host_id);
             if (context.getExecutionSite().getSiteId() == lowest_hs_id)
             {
                 ExportManager.instance().
@@ -286,6 +287,7 @@ public class SnapshotRestore extends VoltSystemProcedure
                 ObjectInputStream ois = new ObjectInputStream(bais);
 
                 //Sequence numbers for every table and partition
+                @SuppressWarnings("unchecked")
                 Map<String, Map<Integer, Long>> exportSequenceNumbers =
                         (Map<String, Map<Integer, Long>>)ois.readObject();
                 Database db = context.getDatabase();
@@ -361,8 +363,8 @@ public class SnapshotRestore extends VoltSystemProcedure
             // All other sites should just return empty results tables.
             int host_id = context.getExecutionSite().getCorrespondingHostId();
             Long lowest_hs_id =
-                    VoltDB.instance().getCatalogContext().siteTracker.
-                    getLowestLiveExecSiteIdForHost(host_id);
+                    VoltDB.instance().getSiteTracker().
+                    getLowestSiteForHost(host_id);
             if (context.getExecutionSite().getSiteId() == lowest_hs_id)
             {
                 try {
@@ -420,8 +422,8 @@ public class SnapshotRestore extends VoltSystemProcedure
             // All other sites should just return empty results tables.
             int host_id = context.getExecutionSite().getCorrespondingHostId();
             Long lowest_hs_id =
-                    VoltDB.instance().getCatalogContext().siteTracker.
-                    getLowestLiveExecSiteIdForHost(host_id);
+                    VoltDB.instance().getSiteTracker().
+                    getLowestSiteForHost(host_id);
             if (context.getExecutionSite().getSiteId() == lowest_hs_id)
             {
                 // implicitly synchronized by the way restore operates.
@@ -539,7 +541,7 @@ public class SnapshotRestore extends VoltSystemProcedure
             {
                 String hostname = ConnectionUtil.getHostnameOrAddress();
                 VoltTable result = constructResultsTable();
-                result.addRow(m_hostId, hostname, m_siteId, table_name, -1, "FAILURE",
+                result.addRow(m_hostId, hostname, MiscUtils.getSiteIdFromHSId(m_siteId), table_name, -1, "FAILURE",
                         "Unable to load table: " + table_name +
                         " error: " + e.getMessage());
                 return new DependencyPair(dependency_id, result);
@@ -593,14 +595,14 @@ public class SnapshotRestore extends VoltSystemProcedure
             } catch (IOException e) {
                 String hostname = ConnectionUtil.getHostnameOrAddress();
                 VoltTable result = constructResultsTable();
-                result.addRow(m_hostId, hostname, m_siteId, table_name, -1, "FAILURE",
+                result.addRow(m_hostId, hostname, MiscUtils.getSiteIdFromHSId(m_siteId), table_name, -1, "FAILURE",
                         "Unable to load table: " + table_name +
                         " error: " + e.getMessage());
                 return new DependencyPair(dependency_id, result);
             } catch (VoltTypeException e) {
                 String hostname = ConnectionUtil.getHostnameOrAddress();
                 VoltTable result = constructResultsTable();
-                result.addRow(m_hostId, hostname, m_siteId, table_name, -1, "FAILURE",
+                result.addRow(m_hostId, hostname, MiscUtils.getSiteIdFromHSId(m_siteId), table_name, -1, "FAILURE",
                         "Unable to load table: " + table_name +
                         " error: " + e.getMessage());
                 return new DependencyPair(dependency_id, result);
@@ -608,7 +610,7 @@ public class SnapshotRestore extends VoltSystemProcedure
 
             String hostname = ConnectionUtil.getHostnameOrAddress();
             VoltTable result = constructResultsTable();
-            result.addRow(m_hostId, hostname, m_siteId, table_name, -1, result_str,
+            result.addRow(m_hostId, hostname, MiscUtils.getSiteIdFromHSId(m_siteId), table_name, -1, result_str,
                     error_msg);
             try {
                 savefile.close();
@@ -670,7 +672,7 @@ public class SnapshotRestore extends VoltSystemProcedure
             VoltTable result = constructResultsTable();
             //Use null hostname to avoid DNS lookup that might be slow
             //if DNS caching is not enabled
-            result.addRow(m_hostId, null, m_siteId, table_name, -1,
+            result.addRow(m_hostId, null, MiscUtils.getSiteIdFromHSId(m_siteId), table_name, -1,
                     result_str, error_msg);
             return new DependencyPair(dependency_id, result);
         }
@@ -798,7 +800,7 @@ public class SnapshotRestore extends VoltSystemProcedure
             VoltTable result = constructResultsTable();
             //Use null hostname to avoid DNS lookup that might be slow
             //if DNS caching is not enabled
-            result.addRow(m_hostId, null, m_siteId, table_name, partition_id,
+            result.addRow(m_hostId, null, MiscUtils.getSiteIdFromHSId(m_siteId), table_name, partition_id,
                     result_str, error_msg);
             return new DependencyPair(dependency_id, result);
         }
@@ -1299,14 +1301,14 @@ public class SnapshotRestore extends VoltSystemProcedure
         catch (IOException e)
         {
             VoltTable result = constructResultsTable();
-            result.addRow(m_hostId, hostname, m_siteId, tableName, -1, "FAILURE",
+            result.addRow(m_hostId, hostname, MiscUtils.getSiteIdFromHSId(m_siteId), tableName, -1, "FAILURE",
                     "Unable to load table: " + tableName +
                     " error: " + e.getMessage());
             return result;
         }
 
         VoltTable[] results = new VoltTable[] { constructResultsTable() };
-        results[0].addRow(m_hostId, hostname, m_siteId, tableName, -1,
+        results[0].addRow(m_hostId, hostname, MiscUtils.getSiteIdFromHSId(m_siteId), tableName, -1,
                 "SUCCESS", "NO DATA TO DISTRIBUTE");
         final Table new_catalog_table = getCatalogTable(tableName);
         Boolean needsConversion = null;
@@ -1368,14 +1370,14 @@ public class SnapshotRestore extends VoltSystemProcedure
         } catch (IOException e) {
             VoltTable result = PrivateVoltTableFactory.createUninitializedVoltTable();
             result = constructResultsTable();
-            result.addRow(m_hostId, hostname, m_siteId, tableName, -1, "FAILURE",
+            result.addRow(m_hostId, hostname, MiscUtils.getSiteIdFromHSId(m_siteId), tableName, -1, "FAILURE",
                     "Unable to load table: " + tableName +
                     " error: " + e.getMessage());
             return result;
         } catch (VoltTypeException e) {
             VoltTable result = PrivateVoltTableFactory.createUninitializedVoltTable();
             result = constructResultsTable();
-            result.addRow(m_hostId, hostname, m_siteId, tableName, -1, "FAILURE",
+            result.addRow(m_hostId, hostname, MiscUtils.getSiteIdFromHSId(m_siteId), tableName, -1, "FAILURE",
                     "Unable to load table: " + tableName +
                     " error: " + e.getMessage());
             return result;
@@ -1392,11 +1394,8 @@ public class SnapshotRestore extends VoltSystemProcedure
         // LoadMultipartitionTable.  Consider ways to consolidate later
         Map<Long, Integer> sites_to_partitions =
                 new HashMap<Long, Integer>();
-        for (long site : VoltDB.instance().getCatalogContext().siteTracker.getAllLiveSites())
-        {
-            Integer partitionId = VoltDB.instance().getCatalogContext().siteTracker.getMailboxTracker().getPartitionForSite(site);
-            sites_to_partitions.put(site, partitionId);
-        }
+        SiteTracker tracker = VoltDB.instance().getSiteTracker();
+        sites_to_partitions.putAll(tracker.getSitesToPartitions());
 
         try
         {
@@ -1410,14 +1409,14 @@ public class SnapshotRestore extends VoltSystemProcedure
         catch (IOException e)
         {
             VoltTable result = constructResultsTable();
-            result.addRow(m_hostId, hostname, m_siteId, tableName, relevantPartitionIds[0], "FAILURE",
+            result.addRow(m_hostId, hostname, MiscUtils.getSiteIdFromHSId(m_siteId), tableName, relevantPartitionIds[0], "FAILURE",
                     "Unable to load table: " + tableName +
                     " error: " + e.getMessage());
             return result;
         }
 
         VoltTable[] results = new VoltTable[] { constructResultsTable() };
-        results[0].addRow(m_hostId, hostname, m_siteId, tableName, 0,
+        results[0].addRow(m_hostId, hostname, MiscUtils.getSiteIdFromHSId(m_siteId), tableName, 0,
                 "SUCCESS", "NO DATA TO DISTRIBUTE");
         final Table new_catalog_table = getCatalogTable(tableName);
         Boolean needsConversion = null;
@@ -1492,7 +1491,7 @@ public class SnapshotRestore extends VoltSystemProcedure
         } catch (Exception e) {
             VoltTable result = PrivateVoltTableFactory.createUninitializedVoltTable();
             result = constructResultsTable();
-            result.addRow(m_hostId, hostname, m_siteId, tableName, relevantPartitionIds[0],
+            result.addRow(m_hostId, hostname, MiscUtils.getSiteIdFromHSId(m_siteId), tableName, relevantPartitionIds[0],
                     "FAILURE", "Unable to load table: " + tableName +
                     " error: " + e.getMessage());
             return result;

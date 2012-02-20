@@ -26,6 +26,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Hashtable;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -37,6 +39,7 @@ import org.json_voltpatches.JSONArray;
 import org.json_voltpatches.JSONObject;
 import org.voltcore.messaging.HostMessenger;
 import org.voltdb.VoltDB.Configuration;
+import org.voltdb.VoltZK.MailboxType;
 import org.voltdb.catalog.Catalog;
 import org.voltdb.catalog.Cluster;
 import org.voltdb.catalog.Column;
@@ -46,6 +49,7 @@ import org.voltdb.catalog.Partition;
 import org.voltdb.catalog.Procedure;
 import org.voltdb.catalog.Site;
 import org.voltdb.catalog.Table;
+import org.voltdb.dtxn.SiteTracker;
 import org.voltdb.fault.FaultDistributorInterface;
 
 public class MockVoltDB implements VoltDBInterface
@@ -93,18 +97,26 @@ public class MockVoltDB implements VoltDBInterface
     OperationMode m_startMode = OperationMode.RUNNING;
     ReplicationRole m_replicationRole = ReplicationRole.NONE;
     private final ExecutorService m_es = Executors.newSingleThreadExecutor();
+    public int m_hostId = 0;
+    private SiteTracker m_siteTracker;
+    private final Map<MailboxType, List<MailboxNodeContent>> m_mailboxMap =
+        new HashMap<MailboxType, List<MailboxNodeContent>>();
 
-    public MockVoltDB()
+    public MockVoltDB() {
+        this(VoltDB.DEFAULT_PORT, VoltDB.DEFAULT_ADMIN_PORT, -1, VoltDB.DEFAULT_DR_PORT);
+    }
+
+    public MockVoltDB(int clientPort, int adminPort, int httpPort, int drPort)
     {
         try {
             JSONObject obj = new JSONObject();
             JSONArray jsonArray = new JSONArray();
             jsonArray.put("127.0.0.1");
             obj.put("interfaces", jsonArray);
-            obj.put("clientPort", 21212);
-            obj.put("adminPort", 21211);
-            obj.put("httpPort", -1);
-            obj.put("drPort", 5555);
+            obj.put("clientPort", clientPort);
+            obj.put("adminPort", adminPort);
+            obj.put("httpPort", httpPort);
+            obj.put("drPort", drPort);
             m_localMetadata = obj.toString(4);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -135,8 +147,6 @@ public class MockVoltDB implements VoltDBInterface
         execSite.setIsup(true);
         execSite.setPartition(partition);*/
 
-        m_statsAgent = new StatsAgent();
-//        Mailbox mbox = m_statsAgent.getMailbox(m_hostMessenger, 1);
 //        MockMailbox.postoffice.get(VoltDB.STATS_MAILBOX_ID).put(1, mbox);
 //        MockMailbox mailbox = new MockMailbox();
 //        MockMailbox.registerMailbox(1, VoltDB.AGREEMENT_MAILBOX_ID, mailbox);
@@ -165,6 +175,16 @@ public class MockVoltDB implements VoltDBInterface
             throw new RuntimeException(e);
         }
         VoltZK.createPersistentZKNodes(m_hostMessenger.getZK());
+
+        m_statsAgent = new StatsAgent();
+        m_statsAgent.getMailbox(m_hostMessenger,
+                m_hostMessenger.getHSIdForLocalSite(HostMessenger.STATS_SITE_ID));
+        for (MailboxType type : MailboxType.values()) {
+            m_mailboxMap.put(type, new LinkedList<MailboxNodeContent>());
+        }
+        m_mailboxMap.get(MailboxType.StatsAgent).add(
+                new MailboxNodeContent(m_hostMessenger.getHSIdForLocalSite(HostMessenger.STATS_SITE_ID), null));
+        m_siteTracker = new SiteTracker(m_hostId, m_mailboxMap);
     }
 
     public Procedure addProcedureForTest(String name)
@@ -190,31 +210,35 @@ public class MockVoltDB implements VoltDBInterface
     private final Hashtable<Long, ExecutionSite> m_localSites =
         new Hashtable<Long, ExecutionSite>();
 
-    public void addSite(long siteId, int hostId, int partitionId, boolean isExec)
+    public void addSite(long siteId, MailboxType type) {
+        m_mailboxMap.get(type).add(new MailboxNodeContent(siteId, null));
+        m_siteTracker = new SiteTracker(m_hostId, m_mailboxMap);
+        if (type == MailboxType.Initiator) {
+            getCluster().getSites().add(Long.toString(siteId));
+            getSite(siteId).setHost(getHost((int)siteId));
+            getSite(siteId).setIsexec(false);
+            getSite(siteId).setIsup(true);
+        }
+    }
+
+    public void addSite(long siteId, int partitionId)
     {
-        if (hostId == 0) {
+        if (((int)siteId) == 0) {
             m_localSites.put(siteId, new ExecutionSite(partitionId));
         }
         getCluster().getSites().add(Long.toString(siteId));
-        getSite(siteId).setHost(getHost(hostId));
-        getSite(siteId).setIsexec(isExec);
-        if (isExec)
-        {
-            getSite(siteId).setPartition(getPartition(partitionId));
-        }
+        getSite(siteId).setHost(getHost((int)siteId));
+        getSite(siteId).setIsexec(true);
+        getSite(siteId).setPartition(getPartition(partitionId));
         getSite(siteId).setIsup(true);
+        MailboxNodeContent mnc = new MailboxNodeContent( siteId, partitionId);
+        m_mailboxMap.get(MailboxType.ExecutionSite).add(mnc);
+        m_siteTracker = new SiteTracker(m_hostId, m_mailboxMap);
     }
 
     public synchronized void killSite(long siteId) {
         m_catalog = m_catalog.deepCopy();
         getSite(siteId).setIsup(false);
-    }
-
-    public void addSite(int siteId, int hostId, int partitionId, boolean isExec,
-                        boolean isUp)
-    {
-        addSite(siteId, hostId, partitionId, isExec);
-        getSite(siteId).setIsup(isUp);
     }
 
     public void addTable(String tableName, boolean isReplicated)
@@ -432,11 +456,6 @@ public class MockVoltDB implements VoltDBInterface
     }
 
     @Override
-    public Object[] getInstanceId() {
-        return new Object[] { new Long(0), new Integer(0) };
-    }
-
-    @Override
     public BackendTarget getBackendTargetType() {
         return BackendTarget.NONE;
     }
@@ -553,5 +572,10 @@ public class MockVoltDB implements VoltDBInterface
     public boolean getReplicationActive()
     {
         return false;
+    }
+
+    @Override
+    public SiteTracker getSiteTracker() {
+        return m_siteTracker;
     }
 }

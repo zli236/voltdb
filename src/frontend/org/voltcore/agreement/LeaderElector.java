@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.zookeeper_voltpatches.CreateMode;
 import org.apache.zookeeper_voltpatches.KeeperException;
@@ -28,61 +30,59 @@ import org.apache.zookeeper_voltpatches.Watcher;
 import org.apache.zookeeper_voltpatches.ZooDefs.Ids;
 import org.apache.zookeeper_voltpatches.ZooKeeper;
 import org.voltcore.utils.MiscUtils;
+import org.voltdb.VoltDB;
 
 public class LeaderElector {
     private final ZooKeeper zk;
     private final String dir;
+    private final String prefix;
     private final byte[] data;
-    private final Runnable cb;
+    private final LeaderNoticeHandler cb;
     private String node = null;
 
+    private volatile String leader = null;
     private volatile boolean isLeader = false;
     private final ExecutorService es;
 
     private final Runnable eventHandler = new Runnable() {
         @Override
         public void run() {
-            String lowestNode = null;
             try {
-                lowestNode = watchNextLowerNode();
+                leader = watchNextLowerNode();
             } catch (Exception e) {
-                e.printStackTrace();
+                VoltDB.crashLocalVoltDB("Failed to get leader", false, e);
             }
 
-            if (node.equals(lowestNode)) {
+            if (node.equals(leader)) {
                 // become the leader
                 isLeader = true;
                 if (cb != null) {
-                    cb.run();
+                    cb.becomeLeader();
                 }
             }
         }
     };
 
-    public LeaderElector(ZooKeeper zk, String path, byte[] data, Runnable cb)
-    throws Exception {
+    private final Watcher watcher = new Watcher() {
+        @Override
+        public void process(WatchedEvent event) {
+            es.submit(eventHandler);
+        }
+    };
+
+    public LeaderElector(ZooKeeper zk, String dir, String prefix, byte[] data,
+                         LeaderNoticeHandler cb) {
         this.zk = zk;
-        this.dir = path;
+        this.dir = dir;
+        this.prefix = prefix;
         this.data = data;
         this.cb = cb;
         es = Executors.newSingleThreadExecutor(MiscUtils.getThreadFactory("Leader elector-" + dir));
-
-        createAndElectLeader();
-    }
-
-    public boolean isLeader() {
-        return isLeader;
-    }
-
-    public String getNode() {
-        return node;
-    }
-
-    public void done() throws InterruptedException, KeeperException {
-        zk.delete(node, -1);
     }
 
     /**
+     * Start leader election.
+     *
      * Creates an ephemeral sequential node under the given directory and check
      * if we are the first one who created it.
      *
@@ -90,19 +90,44 @@ public class LeaderElector {
      * "http://zookeeper.apache.org/doc/trunk/recipes.html#sc_leaderElection"
      * >Zookeeper Leader Election</a>
      *
-     * @param path
-     * @param data
-     * @param cb
-     *            when this node becomes the leader, the callback will be fired.
-     * @return A pair of the created node path and a boolean indicating if we
-     *         are the first one or not
+     * @param block true for blocking operation, false for nonblocking
      * @throws Exception
      */
-    public void createAndElectLeader()
-    throws Exception {
-        node = zk.create(ZKUtil.joinZKPath(dir, "node"), data,
+    public void start(boolean block) throws Exception {
+        node = zk.create(ZKUtil.joinZKPath(dir, prefix + "_"), data,
                          Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
-        eventHandler.run();
+        Future<?> task = es.submit(eventHandler);
+        if (block) {
+            task.get();
+        }
+    }
+
+    public boolean isLeader() {
+        return isLeader;
+    }
+
+    /**
+     * Get the current leader node
+     * @return
+     */
+    public String leader() {
+        return leader;
+    }
+
+    public String getNode() {
+        return node;
+    }
+
+    /**
+     * Deletes the ephemeral node. Make sure that no future watches will fire.
+     *
+     * @throws InterruptedException
+     * @throws KeeperException
+     */
+    public void shutdown() throws InterruptedException, KeeperException {
+        zk.delete(node, -1);
+        es.shutdown();
+        es.awaitTermination(356, TimeUnit.DAYS);
     }
 
     /**
@@ -113,8 +138,6 @@ public class LeaderElector {
      * @throws Exception
      */
     private String watchNextLowerNode() throws Exception {
-        Watcher watcher = createLeaderWatcher();
-
         /*
          * Iterate through the sorted list of children and find the given node,
          * then setup a watcher on the previous node if it exists, otherwise the
@@ -154,15 +177,5 @@ public class LeaderElector {
         }
 
         return lowest;
-    }
-
-    private Watcher createLeaderWatcher() {
-        Watcher watcher = new Watcher() {
-            @Override
-            public void process(WatchedEvent event) {
-                es.submit(eventHandler);
-            }
-        };
-        return watcher;
     }
 }

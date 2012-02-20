@@ -64,11 +64,11 @@ import org.voltcore.network.VoltNetworkPool;
 import org.voltcore.network.VoltProtocolHandler;
 import org.voltcore.network.WriteStream;
 import org.voltcore.utils.EstTime;
-import org.voltcore.utils.MiscUtils;
 import org.voltcore.utils.Pair;
 import org.voltdb.messaging.InitiateResponseMessage;
 import org.voltdb.messaging.InitiateTaskMessage;
 import org.voltdb.messaging.Iv2SPInitMessage;
+import org.voltdb.iv2.InitiatorLeaderMonitor;
 import org.voltdb.SystemProcedureCatalog.Config;
 import org.voltdb.catalog.CatalogMap;
 import org.voltdb.catalog.Partition;
@@ -115,6 +115,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
     private static final VoltLogger networkLog = new VoltLogger("NETWORK");
     private final ClientAcceptor m_acceptor;
     private ClientAcceptor m_adminAcceptor;
+    private final InitiatorLeaderMonitor m_initiatorLeaderMonitor;
     private final CopyOnWriteArrayList<Connection> m_connections = new CopyOnWriteArrayList<Connection>();
     private final SnapshotDaemon m_snapshotDaemon = new SnapshotDaemon();
     private final SnapshotDaemonAdapter m_snapshotDaemonAdapter = new SnapshotDaemonAdapter();
@@ -610,8 +611,8 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
                 responseBuffer.put((byte)0);
                 responseBuffer.putInt(VoltDB.instance().getHostMessenger().getHostId());
                 responseBuffer.putLong(handler.connectionId());
-                responseBuffer.putLong((Long)VoltDB.instance().getInstanceId()[0]);
-                responseBuffer.putInt((Integer)VoltDB.instance().getInstanceId()[1]);
+                responseBuffer.putLong(VoltDB.instance().getHostMessenger().getInstanceId().getTimestamp());
+                responseBuffer.putInt(VoltDB.instance().getHostMessenger().getInstanceId().getCoord());
                 responseBuffer.putInt(buildString.length);
                 responseBuffer.put(buildString).flip();
                 socket.write(responseBuffer);
@@ -804,8 +805,11 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
             final long now)
     {
         if (isSinglePartition) {
-            long hsid = m_catalogContext.get().siteTracker.
-                getPrimaryInitiatorHSIdForPartition(partitions[0]);
+            Long leader  = m_initiatorLeaderMonitor.getLeader(partitions[0]);
+            if (leader == null) {
+                hostLog.error("Failed to find the initiator leader of partition " + partitions[0]);
+                return false;
+            }
 
             // response path must find the connection for a sequence no.
             long handle = m_sequence.incrementAndGet();
@@ -814,15 +818,14 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
 
             InitiateTaskMessage initMsg =
                 new InitiateTaskMessage(
-                        hsid, // hsid of the initiator
-                        hsid, // hsid of the coordinator
+                        leader, // hsid of the initiator
+                        leader, // hsid of the coordinator
                         Long.MIN_VALUE, // txnid - assigned by initiator
                         m_mailbox.getHSId(), // mailbox for eventual client response
                         handle, // handle to pair response
                         isReadOnly, isSinglePartition, invocation);
-
             try {
-                m_mailbox.send(hsid, initMsg);
+                m_mailbox.send(leader, initMsg);
             }
             catch (MessagingException e) {
                 hostLog.debug("Failed to initiate transaction for partition " + partitions[0] +
@@ -876,6 +879,8 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
         throws Exception
     {
         m_catalogContext.set(context);
+        m_initiatorLeaderMonitor = new InitiatorLeaderMonitor(messenger.getZK());
+        m_initiatorLeaderMonitor.start();
 
         // pre-allocate single partition array
         m_allPartitions = allPartitions;
@@ -1011,7 +1016,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
     // in the cluster, make our SnapshotDaemon responsible for snapshots
     public void mayActivateSnapshotDaemon() {
         SnapshotSchedule schedule = m_catalogContext.get().database.getSnapshotschedule().get("default");
-        if (m_catalogContext.get().siteTracker.isLeader() &&
+        if (VoltDB.instance().getSiteTracker().isFirstHost() &&
             schedule != null && schedule.getEnabled())
         {
             Future<Void> future = m_snapshotDaemon.makeActive(schedule);
@@ -1287,7 +1292,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
                     params.m_params[0] = new String("OVERVIEW");
                 }
                 //So that the modified version is reserialized, null out the lazy copy
-                task.unserializedParams = null;
+                task.serializedParams = null;
             }
 
             // the shared dispatch for sysprocs
@@ -1725,6 +1730,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
         public void enqueue(ByteBuffer b)
         {
             ClientResponseImpl resp = new ClientResponseImpl();
+            b.position(4);
             try
             {
                 resp.initFromBuffer(b);

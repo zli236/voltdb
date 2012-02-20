@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.voltcore.messaging.HostMessenger;
 
+import org.voltdb.dtxn.SiteTracker;
 import org.voltdb.fault.FaultDistributorInterface;
 
 public interface VoltDBInterface
@@ -67,9 +68,9 @@ public interface VoltDBInterface
 
     public VoltDB.Configuration getConfig();
     public CatalogContext getCatalogContext();
+    public SiteTracker getSiteTracker();
     public String getBuildString();
     public String getVersionString();
-    public Object[] getInstanceId();
     public HostMessenger getHostMessenger();
     public ArrayList<ClientInterface> getClientInterfaces();
     public Map<Long, ExecutionSite> getLocalSites();

@@ -27,7 +27,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -45,12 +44,12 @@ import org.apache.zookeeper_voltpatches.ZooKeeper;
 import org.json_voltpatches.JSONArray;
 import org.json_voltpatches.JSONObject;
 import org.voltcore.CoreZK;
-import org.voltcore.VoltDB;
 import org.voltcore.agreement.AgreementSite;
 import org.voltcore.agreement.InterfaceToMessenger;
 import org.voltcore.agreement.ZKUtil;
 import org.voltcore.logging.VoltLogger;
 import org.voltcore.network.VoltNetworkPool;
+import org.voltcore.utils.InstanceId;
 import org.voltcore.utils.MiscUtils;
 
 /**
@@ -102,8 +101,9 @@ public class HostMessenger implements SocketJoiner.JoinHandler, InterfaceToMesse
     private final Config m_config;
     private final SocketJoiner m_joiner;
     private final VoltNetworkPool m_network;
-
     private volatile boolean m_localhostReady = false;
+    // memoized InstanceId
+    private InstanceId m_instanceId = null;
 
     /*
      * References to other hosts in the mesh.
@@ -241,8 +241,17 @@ public class HostMessenger implements SocketJoiner.JoinHandler, InterfaceToMesse
              */
             final int selectedHostId = selectNewHostId(m_config.coordinatorIp.toString());
             if (selectedHostId != 0) {
-                VoltDB.crashLocalVoltDB("Selected host id for coordinator was not 0, " + selectedHostId, false, null);
+                org.voltdb.VoltDB.crashLocalVoltDB("Selected host id for coordinator was not 0, " + selectedHostId, false, null);
             }
+
+            // Store the components of the instance ID in ZK
+            JSONObject instance_id = new JSONObject();
+            instance_id.put("coord",
+                            ByteBuffer.wrap(m_config.coordinatorIp.getAddress().getAddress()).getInt());
+            instance_id.put("timestamp", System.currentTimeMillis());
+            hostLog.debug("Cluster will have instance ID:\n" + instance_id.toString(4));
+            byte[] payload = instance_id.toString(4).getBytes("UTF-8");
+            m_zk.create(CoreZK.instance_id, payload, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 
             /*
              * Store all the hosts and host ids here so that waitForGroupJoin
@@ -271,6 +280,33 @@ public class HostMessenger implements SocketJoiner.JoinHandler, InterfaceToMesse
         return m_config.factory;
     }
 
+    /**
+     * Get a unique ID for this cluster
+     * @return
+     */
+    public InstanceId getInstanceId()
+    {
+        if (m_instanceId == null)
+        {
+            try
+            {
+                byte[] data =
+                    m_zk.getData(CoreZK.instance_id, false, null);
+                JSONObject idJSON = new JSONObject(new String(data, "UTF-8"));
+                m_instanceId = new InstanceId(idJSON.getInt("coord"),
+                                              idJSON.getLong("timestamp"));
+
+            }
+            catch (Exception e)
+            {
+                String msg = "Unable to get instance ID info from " + CoreZK.instance_id;
+                hostLog.error(msg);
+                throw new RuntimeException(msg, e);
+            }
+        }
+        return m_instanceId;
+    }
+
     /*
      * Take the new connection (member of the mesh) and create a foreign host for it
      * and put it in the map of foreign hosts
@@ -286,7 +322,7 @@ public class HostMessenger implements SocketJoiner.JoinHandler, InterfaceToMesse
             fhost.register(this);
             fhost.enableRead();
         } catch (java.io.IOException e) {
-            VoltDB.crashLocalVoltDB("", true, e);
+            org.voltdb.VoltDB.crashLocalVoltDB("", true, e);
         }
     }
 
@@ -386,7 +422,7 @@ public class HostMessenger implements SocketJoiner.JoinHandler, InterfaceToMesse
                 reportForeignHostFailed(hostId);
             }
         } catch (Throwable e) {
-            VoltDB.crashLocalVoltDB("", true, e);
+            org.voltdb.VoltDB.crashLocalVoltDB("", true, e);
         }
     }
 
@@ -481,7 +517,7 @@ public class HostMessenger implements SocketJoiner.JoinHandler, InterfaceToMesse
                 putForeignHost(hosts[ii], fhost);
                 fhost.register(this);
             } catch (java.io.IOException e) {
-                VoltDB.crashLocalVoltDB("", true, e);
+                org.voltdb.VoltDB.crashLocalVoltDB("", true, e);
             }
         }
 
@@ -552,7 +588,7 @@ public class HostMessenger implements SocketJoiner.JoinHandler, InterfaceToMesse
                 fw.get();
             }
         } catch (Exception e) {
-            VoltDB.crashLocalVoltDB("Error waiting for hosts to be ready", false, e);
+            org.voltdb.VoltDB.crashLocalVoltDB("Error waiting for hosts to be ready", false, e);
         }
     }
 
@@ -714,7 +750,7 @@ public class HostMessenger implements SocketJoiner.JoinHandler, InterfaceToMesse
                 fw.get();
             }
         } catch (Exception e) {
-            VoltDB.crashLocalVoltDB("Error waiting for hosts to be ready", false, e);
+            org.voltdb.VoltDB.crashLocalVoltDB("Error waiting for hosts to be ready", false, e);
         }
     }
 
@@ -746,7 +782,7 @@ public class HostMessenger implements SocketJoiner.JoinHandler, InterfaceToMesse
         long hsId = 0;
         if (proposedHSId != null) {
             if (m_siteMailboxes.get().containsKey(proposedHSId)) {
-                VoltDB.crashLocalVoltDB(
+                org.voltdb.VoltDB.crashLocalVoltDB(
                         "Attempted to create a mailbox for site " +
                         MiscUtils.hsIdToString(proposedHSId) + " twice", true, null);
             }
@@ -792,5 +828,13 @@ public class HostMessenger implements SocketJoiner.JoinHandler, InterfaceToMesse
 
     public ZooKeeper getZK() {
         return m_zk;
+    }
+
+    public void sendPoisonPill(String err) {
+        for (ForeignHost fh : m_foreignHosts.get().values()) {
+            if (fh != null && fh.isUp()) {
+                fh.sendPoisonPill(err);
+            }
+        }
     }
 }
