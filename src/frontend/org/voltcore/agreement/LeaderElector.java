@@ -94,6 +94,13 @@ public class LeaderElector {
      * @throws Exception
      */
     public void start(boolean block) throws Exception {
+        // create the election root node if it doesn't exist.
+        try {
+            zk.create(dir, null, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        } catch (KeeperException.NodeExistsException e) {
+            // expected on all nodes that don't start() first.
+        }
+
         node = zk.create(ZKUtil.joinZKPath(dir, prefix + "_"), data,
                          Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
         Future<?> task = es.submit(eventHandler);

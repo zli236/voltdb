@@ -56,11 +56,17 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
      * @throws Exception
      */
     public void start() throws Exception {
+        elector = new LeaderElector(
+                messenger.getZK(),
+                VoltZK.electionDirForPartition(partitionId),
+                Long.toString(this.hsId), // prefix
+                null,
+                this);
         this.elector.start(true);
         if (this.elector.isLeader()) {
             role = new PrimaryRole();
         } else {
-            // TODO: replica
+            role = new ReplicatedRole();
         }
     }
 
@@ -150,9 +156,6 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
     public void setHSId(long hsId)
     {
         this.hsId = hsId;
-        String path = VoltZK.electionDirForPartition(this.partitionId);
-        elector = new LeaderElector(this.messenger.getZK(), path,
-                                    Long.toString(this.hsId), null, this);
     }
 
     @Override
