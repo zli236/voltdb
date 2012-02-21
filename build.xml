@@ -24,6 +24,7 @@
             srcdir="@{srcdir}"
             destdir="@{destdir}"
             excludes="@{excludes}"
+            excludesfile="javac-excludes.txt"
             encoding='UTF-8'
             debug='true'>
             <classpath refid="project.classpath" />
