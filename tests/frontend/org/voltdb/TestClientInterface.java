@@ -27,10 +27,9 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.List;
-
 import org.apache.zookeeper_voltpatches.ZooKeeper;
 import org.junit.After;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -43,8 +42,9 @@ import org.voltdb.compiler.AdHocPlannerWork;
 import org.voltdb.compiler.CatalogChangeResult;
 import org.voltdb.compiler.CatalogChangeWork;
 import org.voltdb.compiler.VoltProjectBuilder;
-import org.voltdb.dtxn.TransactionInitiator;
+import org.voltdb.iv2.InitiatorLeaderMonitor;
 import org.voltdb.messaging.FastSerializer;
+import org.voltdb.messaging.InitiateTaskMessage;
 import org.voltcore.messaging.HostMessenger;
 import org.voltcore.messaging.LocalObjectMessage;
 import org.voltcore.messaging.Mailbox;
@@ -62,16 +62,16 @@ public class TestClientInterface {
     private static final VoltDBInterface m_volt = mock(VoltDBInterface.class);
     private static final StatsAgent m_statsAgent = mock(StatsAgent.class);
     private static final HostMessenger m_messenger = mock(HostMessenger.class);
-    private static final TransactionInitiator m_initiator = mock(TransactionInitiator.class);
     private static final ClientInputHandler m_handler = mock(ClientInputHandler.class);
+    private static final ZooKeeper m_zk = mock(ZooKeeper.class);
 
     // real context
     private static CatalogContext m_context = null;
 
     // real CI, but spied on using mockito
-    private static ClientInterface m_ci = null;
+    private ClientInterface m_ci = null;
     // the mailbox in CI
-    private static Mailbox m_mb = null;
+    private Mailbox m_mb = null;
 
     private static int[] m_allPartitions = new int[] {0, 1, 2};
 
@@ -87,16 +87,7 @@ public class TestClientInterface {
         doReturn(m_statsAgent).when(m_volt).getStatsAgent();
         doReturn(mock(SnapshotCompletionMonitor.class)).when(m_volt).getSnapshotCompletionMonitor();
         doReturn(m_messenger).when(m_volt).getHostMessenger();
-        doReturn(mock(VoltNetworkPool.class)).when(m_messenger).getNetwork();
-        doReturn(mock(ZooKeeper.class)).when(m_messenger).getZK();
         doReturn(mock(Configuration.class)).when(m_volt).getConfig();
-        doReturn(32L).when(m_messenger).getHSIdForLocalSite(HostMessenger.ASYNC_COMPILER_SITE_ID);
-
-        // Set up CI with the mock objects.
-        m_ci = spy(new ClientInterface(VoltDB.DEFAULT_PORT, VoltDB.DEFAULT_ADMIN_PORT,
-                                       m_context, m_messenger, ReplicationRole.NONE, m_initiator, m_allPartitions));
-
-        m_mb = m_ci.m_mailbox;
     }
 
     private static void buildCatalog() throws IOException {
@@ -127,10 +118,28 @@ public class TestClientInterface {
         TheHashinator.initialize(3);
     }
 
+    @Before
+    public void setUp() throws Exception {
+        doReturn(mock(VoltNetworkPool.class)).when(m_messenger).getNetwork();
+        doReturn(m_zk).when(m_messenger).getZK();
+        doReturn(32L).when(m_messenger).getHSIdForLocalSite(HostMessenger.ASYNC_COMPILER_SITE_ID);
+
+        // Set up CI with the mock objects.
+        m_ci = spy(new ClientInterface(VoltDB.DEFAULT_PORT, VoltDB.DEFAULT_ADMIN_PORT,
+                                       m_context, m_messenger, ReplicationRole.NONE, m_allPartitions));
+
+        m_mb = m_ci.m_mailbox;
+        // swap out initiator leader monitor with a mock one
+        m_ci.m_initiatorLeaderMonitor = mock(InitiatorLeaderMonitor.class);
+        // the leader HSId for each partition is the partition ID + 100
+        for (int partition : m_allPartitions) {
+            doReturn(100l + (long) partition).when(m_ci.m_initiatorLeaderMonitor).getLeader(eq(partition));
+        }
+    }
+
     @After
     public void tearDown() {
         reset(m_messenger);
-        reset(m_initiator);
         reset(m_handler);
     }
 
@@ -178,38 +187,25 @@ public class TestClientInterface {
     private StoredProcedureInvocation readAndCheck(ByteBuffer msg, String procName, Object partitionParam,
                                                    boolean isAdmin, boolean isReadonly, boolean isSinglePart,
                                                    boolean isEverySite) throws IOException, MessagingException {
-        when(m_initiator.createTransaction(anyLong(), anyString(), anyBoolean(),
-                                           any(StoredProcedureInvocation.class),
-                                           anyBoolean(), anyBoolean(), anyBoolean(),
-                                           any(int[].class), anyInt(), anyObject(),
-                                           anyInt(), anyLong())).thenReturn(true);
-
         ClientResponseImpl resp = m_ci.handleRead(msg, m_handler, null);
         assertNull(resp);
 
-        ArgumentCaptor<Boolean> boolCaptor = ArgumentCaptor.forClass(Boolean.class);
-        ArgumentCaptor<StoredProcedureInvocation> invocationCaptor =
-                ArgumentCaptor.forClass(StoredProcedureInvocation.class);
-        ArgumentCaptor<int[]> partitionCaptor = ArgumentCaptor.forClass(int[].class);
-        verify(m_initiator).createTransaction(anyLong(), anyString(), boolCaptor.capture(),
-                                              invocationCaptor.capture(),
-                                              boolCaptor.capture(), boolCaptor.capture(),
-                                              boolCaptor.capture(), partitionCaptor.capture(),
-                                              anyInt(), anyObject(), anyInt(), anyLong());
-        List<Boolean> boolValues = boolCaptor.getAllValues();
-        assertEquals(isAdmin, boolValues.get(0)); // is admin
-        assertEquals(isReadonly, boolValues.get(1)); // readonly
-        assertEquals(isSinglePart, boolValues.get(2)); // single-part
-        assertEquals(isEverySite, boolValues.get(3)); // every site
-        assertEquals(procName, invocationCaptor.getValue().getProcName());
+        ArgumentCaptor<InitiateTaskMessage> messageCaptor =
+                ArgumentCaptor.forClass(InitiateTaskMessage.class);
+        verify(m_messenger).send(anyLong(), messageCaptor.capture());
+        InitiateTaskMessage taskMessage = messageCaptor.getValue();
+        // TODO: check every site, is admin
+        assertEquals(isReadonly, taskMessage.isReadOnly()); // readonly
+        assertEquals(isSinglePart, taskMessage.isSinglePartition()); // single-part
+        assertEquals(procName, taskMessage.getStoredProcedureName());
         if (isSinglePart) {
             int expected = TheHashinator.hashToPartition(partitionParam);
-            assertEquals(1, partitionCaptor.getValue().length);
-            assertEquals(expected, partitionCaptor.getValue()[0]);
+            long hsid = expected + 100; // hsid of the leader for this partition
+            assertEquals(hsid, taskMessage.getInitiatorHSId());
         } else {
-            assertEquals(m_allPartitions, partitionCaptor.getValue());
+            // TODO: not implemented yet
         }
-        return invocationCaptor.getValue();
+        return taskMessage.getStoredProcedureInvocation();
     }
 
     @Test
@@ -237,15 +233,10 @@ public class TestClientInterface {
     /**
      * Fake an adhoc compiler result and return it to the CI, see if CI
      * initiates the txn.
+     * @throws MessagingException
      */
     @Test
-    public void testFinishedAdHocPlanning() {
-        when(m_initiator.createTransaction(anyLong(), anyString(), anyBoolean(),
-                                           any(StoredProcedureInvocation.class),
-                                           anyBoolean(), anyBoolean(), anyBoolean(),
-                                           any(int[].class), anyInt(), anyObject(),
-                                           anyInt(), anyLong())).thenReturn(true);
-
+    public void testFinishedAdHocPlanning() throws MessagingException {
         AdHocPlannedStmt plannedStmt = new AdHocPlannedStmt();
         plannedStmt.catalogVersion = 0;
         plannedStmt.clientHandle = 0;
@@ -261,21 +252,15 @@ public class TestClientInterface {
         m_mb.deliver(new LocalObjectMessage(plannedStmt));
         m_ci.checkForFinishedCompilerWork();
 
-        ArgumentCaptor<Boolean> boolCaptor = ArgumentCaptor.forClass(Boolean.class);
-        ArgumentCaptor<StoredProcedureInvocation> invocationCaptor =
-                ArgumentCaptor.forClass(StoredProcedureInvocation.class);
-        verify(m_initiator).createTransaction(anyLong(), anyString(), boolCaptor.capture(),
-                                              invocationCaptor.capture(),
-                                              boolCaptor.capture(), boolCaptor.capture(),
-                                              boolCaptor.capture(), any(int[].class),
-                                              anyInt(), anyObject(), anyInt(), anyLong());
-        List<Boolean> boolValues = boolCaptor.getAllValues();
-        assertFalse(boolValues.get(0)); // is admin
-        assertFalse(boolValues.get(1)); // readonly
-        assertFalse(boolValues.get(2)); // single-part
-        assertFalse(boolValues.get(3)); // every site
-        assertEquals("@AdHoc", invocationCaptor.getValue().getProcName());
-        assertEquals("select * from a", invocationCaptor.getValue().getParameterAtIndex(2));
+        ArgumentCaptor<InitiateTaskMessage> messageCaptor =
+                ArgumentCaptor.forClass(InitiateTaskMessage.class);
+        verify(m_messenger).send(anyLong(), messageCaptor.capture());
+        InitiateTaskMessage taskMessage = messageCaptor.getValue();
+        // TODO: check every site, is admin
+        assertFalse(taskMessage.isReadOnly()); // readonly
+        assertFalse(taskMessage.isSinglePartition()); // single-part
+        assertEquals("@AdHoc", taskMessage.getStoredProcedureName());
+        assertEquals("select * from a", taskMessage.getStoredProcedureInvocation().getParameterAtIndex(2));
     }
 
     @Test
@@ -293,15 +278,10 @@ public class TestClientInterface {
     /**
      * Fake a catalog diff compiler result and send it back to the CI, see if CI
      * initiates a new txn.
+     * @throws MessagingException
      */
     @Test
-    public void testFinishedCatalogDiffing() {
-        when(m_initiator.createTransaction(anyLong(), anyString(), anyBoolean(),
-                                           any(StoredProcedureInvocation.class),
-                                           anyBoolean(), anyBoolean(), anyBoolean(),
-                                           any(int[].class), anyInt(), anyObject(),
-                                           anyInt(), anyLong())).thenReturn(true);
-
+    public void testFinishedCatalogDiffing() throws MessagingException {
         CatalogChangeResult catalogResult = new CatalogChangeResult();
         catalogResult.clientData = null;
         catalogResult.clientHandle = 0;
@@ -317,25 +297,21 @@ public class TestClientInterface {
         m_mb.deliver(new LocalObjectMessage(catalogResult));
         m_ci.checkForFinishedCompilerWork();
 
-        ArgumentCaptor<Boolean> boolCaptor = ArgumentCaptor.forClass(Boolean.class);
-        ArgumentCaptor<StoredProcedureInvocation> invocationCaptor =
-                ArgumentCaptor.forClass(StoredProcedureInvocation.class);
-        verify(m_initiator).createTransaction(anyLong(), anyString(), boolCaptor.capture(),
-                                              invocationCaptor.capture(),
-                                              boolCaptor.capture(), boolCaptor.capture(),
-                                              boolCaptor.capture(), any(int[].class),
-                                              anyInt(), anyObject(), anyInt(), anyLong());
-        List<Boolean> boolValues = boolCaptor.getAllValues();
-        assertFalse(boolValues.get(0)); // is admin
-        assertFalse(boolValues.get(1)); // readonly
-        assertTrue(boolValues.get(2)); // single-part
-        assertTrue(boolValues.get(3)); // every site
-        assertEquals("@UpdateApplicationCatalog", invocationCaptor.getValue().getProcName());
-        assertEquals("diff", invocationCaptor.getValue().getParameterAtIndex(0));
-        assertTrue(Arrays.equals("blah".getBytes(), (byte[]) invocationCaptor.getValue().getParameterAtIndex(1)));
-        assertEquals(3, invocationCaptor.getValue().getParameterAtIndex(2));
-        assertEquals("blah", invocationCaptor.getValue().getParameterAtIndex(3));
-        assertEquals(1234l, invocationCaptor.getValue().getParameterAtIndex(4));
+        ArgumentCaptor<InitiateTaskMessage> messageCaptor =
+                ArgumentCaptor.forClass(InitiateTaskMessage.class);
+        verify(m_messenger).send(anyLong(), messageCaptor.capture());
+        InitiateTaskMessage taskMessage = messageCaptor.getValue();
+        // TODO: check every site, is admin
+        assertFalse(taskMessage.isReadOnly()); // readonly
+        assertTrue(taskMessage.isSinglePartition()); // single-part
+        assertEquals("@UpdateApplicationCatalog", taskMessage.getStoredProcedureName());
+
+        StoredProcedureInvocation invocation = taskMessage.getStoredProcedureInvocation();
+        assertEquals("diff", invocation.getParameterAtIndex(0));
+        assertTrue(Arrays.equals("blah".getBytes(), (byte[]) invocation.getParameterAtIndex(1)));
+        assertEquals(3, invocation.getParameterAtIndex(2));
+        assertEquals("blah", invocation.getParameterAtIndex(3));
+        assertEquals(1234l, invocation.getParameterAtIndex(4));
     }
 
     @Test

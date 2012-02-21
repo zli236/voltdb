@@ -113,7 +113,7 @@ public class ClientInterface implements SnapshotDaemon.DaemonInitiator {
     private static final VoltLogger networkLog = new VoltLogger("NETWORK");
     private final ClientAcceptor m_acceptor;
     private ClientAcceptor m_adminAcceptor;
-    private final InitiatorLeaderMonitor m_initiatorLeaderMonitor;
+    InitiatorLeaderMonitor m_initiatorLeaderMonitor;
     private final CopyOnWriteArrayList<Connection> m_connections = new CopyOnWriteArrayList<Connection>();
     private final SnapshotDaemon m_snapshotDaemon = new SnapshotDaemon();
     private final SnapshotDaemonAdapter m_snapshotDaemonAdapter = new SnapshotDaemonAdapter();
