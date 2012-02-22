@@ -26,6 +26,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.zookeeper_voltpatches.KeeperException;
 import org.apache.zookeeper_voltpatches.WatchedEvent;
@@ -50,11 +51,14 @@ public class InitiatorLeaderMonitor {
             Executors.newSingleThreadExecutor(MiscUtils.getThreadFactory("Client Interface"));
     private final Map<Integer, Long> initiatorLeaders =
             Collections.synchronizedMap(new HashMap<Integer, Long>());
+    private final AtomicBoolean shutdown = new AtomicBoolean(false);
 
     private final Watcher partitionWatcher = new Watcher() {
         @Override
         public void process(WatchedEvent event) {
-            es.submit(handlePartitionChange);
+            if (shutdown.get() == false) {
+                es.submit(handlePartitionChange);
+            }
         }
     };
     private final Runnable handlePartitionChange = new Runnable() {
@@ -78,7 +82,9 @@ public class InitiatorLeaderMonitor {
 
         @Override
         public void process(WatchedEvent event) {
-            es.submit(new LeaderChangeHandler(partition, path));
+            if (shutdown.get() == false) {
+                es.submit(new LeaderChangeHandler(partition, path));
+            }
         }
     };
     private class LeaderChangeHandler implements Runnable {
@@ -117,6 +123,10 @@ public class InitiatorLeaderMonitor {
     public void start() throws InterruptedException, ExecutionException {
         Future<?> task = es.submit(handlePartitionChange);
         task.get();
+    }
+
+    public void shutdown() {
+        shutdown.set(true);
     }
 
     /**
