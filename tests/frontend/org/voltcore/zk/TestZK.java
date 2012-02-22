@@ -28,6 +28,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.fail;
 
+import org.voltcore.agreement.BabySitter;
 import org.voltcore.agreement.LeaderElector;
 import org.voltcore.agreement.LeaderNoticeHandler;
 import org.voltcore.agreement.ZKUtil;
@@ -347,6 +348,35 @@ public class TestZK extends ZKTestBase {
 
         zk3.close();
     }
+
+    @Test
+    public void testBabySitter() throws Exception {
+
+        final Semaphore sem = new Semaphore(0);
+        BabySitter.Callback cb = new BabySitter.Callback() {
+            @Override
+            public void run(List<String> children) {
+                sem.release(1);
+            }
+        };
+
+        ZooKeeper zk = getClient(0);
+        zk.create("/babysitterroot", new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        zk.create("/babysitterroot/c1", new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
+        BabySitter bs = new BabySitter(zk, "/babysitterroot", cb);
+        assertTrue(bs.lastSeenChildren().size() == 1);
+
+        zk.create("/babysitterroot/c2", new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
+        sem.acquire();
+        assertTrue(bs.lastSeenChildren().size() == 2);
+
+        zk.delete("/babysitterroot/" + bs.lastSeenChildren().get(0), -1);
+        sem.acquire();
+        assertTrue(bs.lastSeenChildren().size() == 1);
+
+        bs.shutdown();
+    }
+
 
 //    @Test
 //    public void testMassiveNode() throws Exception {
