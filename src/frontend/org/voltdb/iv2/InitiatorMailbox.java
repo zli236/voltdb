@@ -17,16 +17,23 @@
 
 package org.voltdb.iv2;
 
+import java.util.List;
+
 import org.voltcore.logging.VoltLogger;
+import org.voltcore.agreement.BabySitter;
+import org.voltcore.agreement.BabySitter.Callback;
 import org.voltcore.agreement.LeaderElector;
 import org.voltcore.agreement.LeaderNoticeHandler;
+import org.voltcore.agreement.ZKUtil;
 import org.voltcore.messaging.HostMessenger;
 import org.voltcore.messaging.Mailbox;
 import org.voltcore.messaging.MessagingException;
 import org.voltcore.messaging.Subject;
 import org.voltcore.messaging.VoltMessage;
+import org.voltcore.utils.Pair;
 import org.voltdb.VoltZK;
 
+import org.voltdb.messaging.InitiateAckMessage;
 import org.voltdb.messaging.InitiateResponseMessage;
 import org.voltdb.messaging.InitiateTaskMessage;
 
@@ -39,11 +46,42 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
     VoltLogger hostLog = new VoltLogger("HOST");
     private final int partitionId;
     private final HostMessenger messenger;
-    private LeaderElector elector;
     private long hsId;
 
     // for now, there are only primary initiatiors.
-    private InitiatorRole role = null;
+    private InitiatorRole role;
+    private LeaderElector elector;
+    // only primary initiator has the following two set
+    private BabySitter babySitter = null;
+    private volatile long[] replicas = null;
+    private Callback membershipChangeHandler = new Callback()
+    {
+        @Override
+        public void run(List<String> children)
+        {
+            if (children == null) {
+                return;
+            }
+
+            // The list includes the leader, exclude it
+            long[] tmpArray = new long[children.size() - 1];
+            int i = 0;
+            for (String child : children) {
+                try {
+                    long HSId = Long.parseLong(child.split("_")[0]);
+                    if (HSId != hsId) {
+                        tmpArray[i++] = HSId;
+                    }
+                }
+                catch (NumberFormatException e) {
+                    hostLog.error("Unable to get the HSId of initiator replica " + child);
+                    return;
+                }
+            }
+            replicas = tmpArray;
+            ((PrimaryRole) role).setReplicas(replicas);
+        }
+    };
 
     public InitiatorMailbox(HostMessenger messenger, int partitionId)
     {
@@ -55,19 +93,20 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
      * Start leader election
      * @throws Exception
      */
-    public void start() throws Exception {
+    public void start() throws Exception
+    {
+        // by this time, we should have our HSId
+        role = new ReplicatedRole(hsId);
+
+        String electionDirForPartition = VoltZK.electionDirForPartition(partitionId);
         elector = new LeaderElector(
                 messenger.getZK(),
-                VoltZK.electionDirForPartition(partitionId),
+                electionDirForPartition,
                 Long.toString(this.hsId), // prefix
                 null,
                 this);
+        // This will invoke becomeLeader()
         this.elector.start(true);
-        if (this.elector.isLeader()) {
-            role = new PrimaryRole();
-        } else {
-            role = new ReplicatedRole();
-        }
     }
 
     @Override
@@ -88,18 +127,80 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
     public void deliver(VoltMessage message)
     {
         if (message instanceof InitiateTaskMessage) {
-            role.offerInitiateTask((InitiateTaskMessage)message);
+            // this will assign txnId if we are the leader
+            synchronized (role) {
+                role.offerInitiateTask((InitiateTaskMessage)message);
+                if (elector.isLeader()) {
+                    replicateInitiation((InitiateTaskMessage)message);
+                }
+                else {
+                    ackInitiation();
+                }
+            }
+        }
+        else if (message instanceof InitiateAckMessage) {
+            // Only primary receives this type of messages
+            InitiateAckMessage ackMessage = (InitiateAckMessage) message;
+            ((PrimaryRole) role).ack(ackMessage.m_sourceHSId, ackMessage.getTransactionId());
         }
         else if (message instanceof InitiateResponseMessage) {
-            // this isn't quite right. But - offer to the role
-            // and then always respond to the client interface.
             InitiateResponseMessage response = (InitiateResponseMessage)message;
-            role.offerResponse(response);
+            Pair<Long, InitiateResponseMessage> nextResponse = role.offerResponse(response);
+            /*
+             * In case the response needs to be forwarded. Replicas forward the
+             * responses to the primary initiator. Primary initiator forwards
+             * responses to the client interface.
+             */
+            if (nextResponse != null) {
+                try {
+                    send(nextResponse.getFirst(), nextResponse.getSecond());
+                }
+                catch (MessagingException e) {
+                    hostLog.error("Failed to deliver response from execution site.", e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Forwards the initiate task message to the replicas. Only the primary
+     * initiator has to do this.
+     *
+     * @param message
+     */
+    private void replicateInitiation(InitiateTaskMessage message)
+    {
+        if (replicas != null) {
             try {
-                send(response.getClientInterfaceHSId(), response);
+                send(replicas, message);
             }
             catch (MessagingException e) {
-                hostLog.error("Failed to deliver response from execution site.", e);
+                hostLog.error("Failed to replicate initiate task.", e);
+            }
+        }
+    }
+
+    /**
+     * Send initiate ack message to the primary initiator. Only initiator
+     * replicas have to do this.
+     */
+    private void ackInitiation()
+    {
+        long nextToAck = ((ReplicatedRole) role).getLastSeenTxnId();
+        if (nextToAck != -1) {
+            InitiateAckMessage ackMessage = new InitiateAckMessage(nextToAck);
+            String leader = elector.leader();
+            if (leader != null) {
+                try {
+                    long HSId = Long.parseLong(ZKUtil.basename(leader).split("_")[0]);
+                    send(HSId, ackMessage);
+                } catch (NumberFormatException e) {
+                    hostLog.error("Unable to get the HSId of the leader " + leader);
+                    return;
+                } catch (MessagingException e) {
+                    hostLog.error("Failed to send ack message to leader", e);
+                    return;
+                }
             }
         }
     }
@@ -159,10 +260,14 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
     }
 
     @Override
-    public void becomeLeader() {
-        // TODO: sophisticated physics happening here
+    public void becomeLeader()
+    {
+        String electionDirForPartition = VoltZK.electionDirForPartition(partitionId);
         role = new PrimaryRole();
+        babySitter = new BabySitter(messenger.getZK(),
+                                    electionDirForPartition,
+                                    membershipChangeHandler);
+        // TODO: it's not guaranteed that we'll have all the children at this time
+        membershipChangeHandler.run(babySitter.lastSeenChildren());
     }
-
-
 }

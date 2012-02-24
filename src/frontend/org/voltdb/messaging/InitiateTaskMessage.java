@@ -42,6 +42,9 @@ public class InitiateTaskMessage extends VoltMessage
     private boolean m_isSinglePartition;
     private StoredProcedureInvocation m_invocation;
 
+    // Sent by the primary initiator to the replicas for truncation
+    private long m_truncationTxnId = -1;
+
     AtomicBoolean m_isDurable;
 
     /** Empty constructor for de-serialization */
@@ -73,6 +76,12 @@ public class InitiateTaskMessage extends VoltMessage
     public long getInitiatorHSId()
     {
         return m_initiatorHSId;
+    }
+
+    // replica may set this to replica initiator HSId
+    public void setInitiatorHSId(long HSId)
+    {
+        m_initiatorHSId = HSId;
     }
 
     public long getCoordinatorHSId()
@@ -148,6 +157,15 @@ public class InitiateTaskMessage extends VoltMessage
         return m_isDurable;
     }
 
+    public void setTruncationTxnId(long txnId)
+    {
+        m_truncationTxnId = txnId;
+    }
+
+    public long getTruncationTxnId()
+    {
+        return m_truncationTxnId;
+    }
 
     @Override
     public int getSerializedSize()
@@ -159,6 +177,7 @@ public class InitiateTaskMessage extends VoltMessage
             + 8 // transactionId
             + 8 // clientInterfaceHSId
             + 8 // clientInterfaceHandle
+            + 8 // truncationTxnId
             + 1 // isReadOnly
             + 1 // isSinglePartition
             + m_invocation.getSerializedSize()
@@ -175,6 +194,7 @@ public class InitiateTaskMessage extends VoltMessage
         buf.putLong(m_transactionId);
         buf.putLong(m_clientInterfaceHSId);
         buf.putLong(m_clientInterfaceHandle);
+        buf.putLong(m_truncationTxnId);
         buf.put(m_isReadOnly ? (byte) 1 : (byte) 0);
         buf.put(m_isSinglePartition ? (byte) 1 : (byte) 0);
         m_invocation.flattenToBuffer(buf);
@@ -191,6 +211,7 @@ public class InitiateTaskMessage extends VoltMessage
         m_transactionId = buf.getLong();
         m_clientInterfaceHSId = buf.getLong();
         m_clientInterfaceHandle = buf.getLong();
+        m_truncationTxnId = buf.getLong();
         m_isReadOnly = buf.get() == 1;
         m_isSinglePartition = buf.get() == 1;
 

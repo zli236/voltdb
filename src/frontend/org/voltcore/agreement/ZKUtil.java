@@ -59,6 +59,25 @@ public class ZKUtil {
         }
     }
 
+    /**
+     * Get the basename of a given path. The last component in the path
+     * @param path
+     * @return null if the path is empty
+     */
+    public static String basename(String path) {
+        if (path == null) {
+            return null;
+        }
+
+        String[] split = path.split("/");
+        for (int i = split.length - 1; i >= 0; i--) {
+            if (!split[i].isEmpty()) {
+                return split[i];
+            }
+        }
+        return null;
+    }
+
     public static File getUploadAsTempFile( ZooKeeper zk, String path, String prefix) throws Exception {
         byte data[] = retrieveChunksAsBytes(zk, path, prefix, false).getFirst();
         File tempFile = File.createTempFile("foo", "bar");

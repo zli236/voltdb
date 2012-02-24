@@ -120,6 +120,7 @@ public class InitiateResponseMessage extends VoltMessage {
             + 8 // m_txnId
             + 8 // m_initiatorHSId
             + 8 // m_coordinatorHSId
+            + 8 // m_clientInterfaceHSId
             + 8 // m_clientInterfaceHandle
             + 1 // m_recovering
             + m_response.getSerializedSize()
@@ -133,6 +134,7 @@ public class InitiateResponseMessage extends VoltMessage {
         buf.putLong(m_txnId);
         buf.putLong(m_initiatorHSId);
         buf.putLong(m_coordinatorHSId);
+        buf.putLong(m_clientInterfaceHSId);
         buf.putLong(m_clientInterfaceHandle);
         buf.put((byte) (m_recovering == true ? 1 : 0));
         m_response.flattenToBuffer(buf);
@@ -146,6 +148,7 @@ public class InitiateResponseMessage extends VoltMessage {
         m_txnId = buf.getLong();
         m_initiatorHSId = buf.getLong();
         m_coordinatorHSId = buf.getLong();
+        m_clientInterfaceHSId = buf.getLong();
         m_clientInterfaceHandle = buf.getLong();
         m_recovering = buf.get() == 1;
         m_response = new ClientResponseImpl();

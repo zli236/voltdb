@@ -18,32 +18,106 @@
 package org.voltdb.iv2;
 
 import java.util.concurrent.LinkedBlockingDeque;
-
-
+import org.voltcore.utils.Pair;
 import org.voltdb.messaging.InitiateResponseMessage;
 import org.voltdb.messaging.InitiateTaskMessage;
 
+/**
+ * Replicated initiator role. It accepts transactions with pre-assigned
+ * transaction IDs from the primary initiator, then it immediately acks the
+ * transactions it has received to the primary. All new transactions are safe to
+ * be executed upon reception. Responses of executed transactions are stored
+ * until the primary says it's safe to discard. Responses are forwarded back to
+ * the primary immediately on finish.
+ */
 public class ReplicatedRole implements InitiatorRole {
+    private final long hsid;
 
-    private LinkedBlockingDeque<InitiateTaskMessage> initiations =
-        new LinkedBlockingDeque<InitiateTaskMessage>();
+    private volatile long truncationTxnId = -1;
+    private volatile long lastExecutedTxnId = -1;
+    private volatile long lastSeenTxnId = -1;
+
+    private LinkedBlockingDeque<InitiateTaskMessage> outstanding =
+            new LinkedBlockingDeque<InitiateTaskMessage>();
+    private LinkedBlockingDeque<InitiateTaskMessage> inflight =
+            new LinkedBlockingDeque<InitiateTaskMessage>();
+
+    /**
+     * @param hsid The HSId of the initiator that owns this.
+     */
+    public ReplicatedRole(long hsid) {
+        this.hsid = hsid;
+    }
 
     @Override
     public void offerInitiateTask(InitiateTaskMessage message)
     {
-        initiations.offer((InitiateTaskMessage)message);
+        long txnId = message.getTransactionId();
+        if (txnId != lastSeenTxnId + 1) {
+            throw new RuntimeException("Transaction missing, expecting transaction " +
+                                       (lastSeenTxnId + 1) + ", but got " + txnId);
+        }
+        lastSeenTxnId = message.getTransactionId();
+        message.setInitiatorHSId(hsid);
+        outstanding.offer(message);
+
+        long truncationTxnId = message.getTruncationTxnId();
+        if (truncationTxnId != -1) {
+            truncate(truncationTxnId);
+        }
     }
 
     @Override
-    public void offerResponse(InitiateResponseMessage message)
+    public Pair<Long, InitiateResponseMessage> offerResponse(InitiateResponseMessage message)
     {
+        return Pair.of(message.getCoordinatorHSId(), message);
     }
 
     @Override
     public InitiateTaskMessage poll()
     {
-        return initiations.poll();
+        InitiateTaskMessage txn = outstanding.poll();
+        if (txn != null) {
+            lastExecutedTxnId = txn.getTransactionId();
+            inflight.offer(txn);
+        }
+        return txn;
     }
 
+    /**
+     * Get the transaction ID of the last received transaction.
+     * @return last seen transaction ID, or -1 if none.
+     */
+    public long getLastSeenTxnId() {
+        return lastSeenTxnId;
+    }
+
+    /**
+     * Remove any transaction responses that are before the truncation point.
+     * Replica keeps responses for all transactions until the primary initiator
+     * has sent the response back to the client interface, at which time the
+     * primary will notify replicas to truncate at that transaction.
+     *
+     * @param txnId truncation point
+     */
+    private void truncate(long txnId) {
+        truncationTxnId = txnId;
+        long lastExecuted = lastExecutedTxnId;
+        if (truncationTxnId <= lastExecuted) {
+            /*
+             * scan from beginning of executed queue and remove any transaction
+             * that's before the truncation point
+             */
+            InitiateTaskMessage txn;
+            while ((txn = inflight.peek()) != null) {
+                if (txn.getTransactionId() <= truncationTxnId) {
+                    inflight.remove();
+                }
+                else {
+                    break;
+                }
+            }
+        }
+    }
 }
 

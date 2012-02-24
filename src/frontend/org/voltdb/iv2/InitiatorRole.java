@@ -18,17 +18,33 @@
 package org.voltdb.iv2;
 
 
+import org.voltcore.utils.Pair;
 import org.voltdb.messaging.InitiateResponseMessage;
 import org.voltdb.messaging.InitiateTaskMessage;
 
 public interface InitiatorRole
 {
-    /** Forward a new transaction */
+    /**
+     * Forward a new transaction.
+     *
+     * If this is the primary initiator, the caller must synchronize on this to
+     * guarantee that the transactions will be queued in order.
+     */
     public void offerInitiateTask(InitiateTaskMessage message);
 
-    /** Forward a transaction completion */
-    public void offerResponse(InitiateResponseMessage message);
+    /**
+     * Forward a transaction completion.
+     *
+     * @return A pair of HSId and response message if the response message needs
+     *         to be forwarded to the site designated by the HSId, or null if no
+     *         forwarding is required.
+     */
+    public Pair<Long, InitiateResponseMessage> offerResponse(InitiateResponseMessage message);
 
-    /** Request the next new transaction to execute */
+    /**
+     * Request the next new transaction to execute.
+     *
+     * @return Next transaction to execute, or null if none is ready.
+     */
     public InitiateTaskMessage poll();
 }

@@ -31,7 +31,6 @@ import org.voltdb.messaging.InitiateResponseMessage;
 import org.voltdb.messaging.InitiateTaskMessage;
 
 public class SinglePartitionTxnState extends TransactionState {
-
     InitiateTaskMessage m_task = null;
 
     public SinglePartitionTxnState(Mailbox mbox,
