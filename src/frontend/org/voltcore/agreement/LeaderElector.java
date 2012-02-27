@@ -53,7 +53,7 @@ public class LeaderElector {
                 VoltDB.crashLocalVoltDB("Failed to get leader", false, e);
             }
 
-            if (node.equals(leader)) {
+            if (node != null && node.equals(leader)) {
                 // become the leader
                 isLeader = true;
                 if (cb != null) {

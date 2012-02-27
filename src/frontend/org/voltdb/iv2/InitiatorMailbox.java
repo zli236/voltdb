@@ -19,6 +19,7 @@ package org.voltdb.iv2;
 
 import java.util.List;
 
+import org.apache.zookeeper_voltpatches.KeeperException;
 import org.voltcore.logging.VoltLogger;
 import org.voltcore.agreement.BabySitter;
 import org.voltcore.agreement.BabySitter.Callback;
@@ -49,17 +50,17 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
     private long hsId;
 
     // for now, there are only primary initiatiors.
-    private InitiatorRole role;
+    InitiatorRole role;
     private LeaderElector elector;
     // only primary initiator has the following two set
     private BabySitter babySitter = null;
     private volatile long[] replicas = null;
-    private Callback membershipChangeHandler = new Callback()
+    Callback membershipChangeHandler = new Callback()
     {
         @Override
         public void run(List<String> children)
         {
-            if (children == null) {
+            if (children == null || children.isEmpty()) {
                 return;
             }
 
@@ -107,6 +108,16 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
                 this);
         // This will invoke becomeLeader()
         this.elector.start(true);
+    }
+
+    public void shutdown() throws InterruptedException, KeeperException
+    {
+        if (babySitter != null) {
+            babySitter.shutdown();
+        }
+        if (elector != null) {
+            elector.shutdown();
+        }
     }
 
     @Override

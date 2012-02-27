@@ -45,7 +45,8 @@ public class ReplicatedRole implements InitiatorRole {
     /**
      * @param hsid The HSId of the initiator that owns this.
      */
-    public ReplicatedRole(long hsid) {
+    public ReplicatedRole(long hsid)
+    {
         this.hsid = hsid;
     }
 
@@ -88,8 +89,18 @@ public class ReplicatedRole implements InitiatorRole {
      * Get the transaction ID of the last received transaction.
      * @return last seen transaction ID, or -1 if none.
      */
-    public long getLastSeenTxnId() {
+    public long getLastSeenTxnId()
+    {
         return lastSeenTxnId;
+    }
+
+    long getOldestInFlightTxnId()
+    {
+        InitiateTaskMessage oldest = inflight.peek();
+        if (oldest != null) {
+            return oldest.getTransactionId();
+        }
+        return -1;
     }
 
     /**
@@ -100,7 +111,8 @@ public class ReplicatedRole implements InitiatorRole {
      *
      * @param txnId truncation point
      */
-    private void truncate(long txnId) {
+    private void truncate(long txnId)
+    {
         truncationTxnId = txnId;
         long lastExecuted = lastExecutedTxnId;
         if (truncationTxnId <= lastExecuted) {
