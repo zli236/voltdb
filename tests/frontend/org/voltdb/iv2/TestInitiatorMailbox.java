@@ -26,18 +26,19 @@ package org.voltdb.iv2;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.zookeeper_voltpatches.ZooDefs.Ids;
+import org.apache.zookeeper_voltpatches.CreateMode;
 import org.apache.zookeeper_voltpatches.ZooKeeper;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
-import org.voltcore.agreement.LeaderElector;
+import org.voltcore.agreement.ZKUtil;
 import org.voltcore.messaging.HostMessenger;
 import org.voltcore.zk.ZKTestBase;
 import org.voltdb.ClientResponseImpl;
@@ -86,14 +87,20 @@ public class TestInitiatorMailbox extends ZKTestBase {
         reset(mockVolt);
     }
 
-    private void createElectionNodes(int count, boolean isPrimary) {
-        List<String> children = new ArrayList<String>(count);
-        children.add(String.format("100_%10d", 0));
-        for (int i = 0; i < count - 1; i++) {
-            children.add(String.format("%d_%10d", i, i));
-        }
+    private void createElectionNodes(int count, boolean isPrimary) throws Exception {
+        String path = VoltZK.electionDirForPartition(0);
+        try {
+            hm.getZK().create(path, null, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        } catch (Exception e) {}
+
+        int sequence = 0;
         if (isPrimary) {
-            mb.membershipChangeHandler.run(children);
+            sequence = 1;
+        }
+        for (int i = 0; i < count - 1; i++) {
+            String file = ZKUtil.joinZKPath(path, String.format("%d_%010d", i, sequence++));
+            String create = hm.getZK().create(file, null, Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+            System.err.println(create);
         }
     }
 
@@ -155,8 +162,8 @@ public class TestInitiatorMailbox extends ZKTestBase {
      */
     @Test
     public void testConcurrentDelivery() throws Exception {
-        mb.start();
         createElectionNodes(2, true);
+        mb.start(2);
         generateTasks(true);
 
         /*
@@ -174,8 +181,8 @@ public class TestInitiatorMailbox extends ZKTestBase {
 
     @Test
     public void testAck() throws Exception {
-        mb.start();
         createElectionNodes(2, true);
+        mb.start(2);
         generateTasks(true);
 
         // no task until acked
@@ -216,8 +223,8 @@ public class TestInitiatorMailbox extends ZKTestBase {
 
     @Test
     public void testRespond() throws Exception {
-        mb.start();
         createElectionNodes(2, true);
+        mb.start(2);
         generateTasks(true);
         VoltTable[] results =
                 new VoltTable[] {new VoltTable(new ColumnInfo("T", VoltType.BIGINT))};
@@ -290,8 +297,8 @@ public class TestInitiatorMailbox extends ZKTestBase {
 
     @Test
     public void testResultLengthMismatch() throws Exception {
-        mb.start();
         createElectionNodes(2, true);
+        mb.start(2);
         generateTasks(true);
         VoltTable[] results =
                 new VoltTable[] {new VoltTable(new ColumnInfo("T", VoltType.BIGINT))};
@@ -322,8 +329,8 @@ public class TestInitiatorMailbox extends ZKTestBase {
 
     @Test
     public void testResultMismatch() throws Exception {
-        mb.start();
         createElectionNodes(2, true);
+        mb.start(2);
         generateTasks(true);
         VoltTable[] results =
                 new VoltTable[] {new VoltTable(new ColumnInfo("T", VoltType.BIGINT))};
@@ -354,13 +361,8 @@ public class TestInitiatorMailbox extends ZKTestBase {
 
     @Test
     public void testReplicaAck() throws Exception {
-        LeaderElector elector = new LeaderElector(hm.getZK(),
-                                                  VoltZK.electionDirForPartition(0),
-                                                  "0", null, null);
-        // to prevent the initiator become the leader
-        elector.start(true);
-        mb.start();
         createElectionNodes(2, false);
+        mb.start(2);
         generateTasks(false);
 
         /*
@@ -374,13 +376,8 @@ public class TestInitiatorMailbox extends ZKTestBase {
 
     @Test
     public void testReplicaTruncation() throws Exception {
-        LeaderElector elector = new LeaderElector(hm.getZK(),
-                                                  VoltZK.electionDirForPartition(0),
-                                                  "0", null, null);
-        // to prevent the initiator become the leader
-        elector.start(true);
-        mb.start();
         createElectionNodes(2, false);
+        mb.start(2);
         generateTasks(false);
 
         // execute all transactions

@@ -32,6 +32,7 @@ import org.voltcore.messaging.MessagingException;
 import org.voltcore.messaging.Subject;
 import org.voltcore.messaging.VoltMessage;
 import org.voltcore.utils.Pair;
+import org.voltdb.VoltDB;
 import org.voltdb.VoltZK;
 
 import org.voltdb.messaging.InitiateAckMessage;
@@ -94,7 +95,7 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
      * Start leader election
      * @throws Exception
      */
-    public void start() throws Exception
+    public void start(int totalReplicasForPartition) throws Exception
     {
         // by this time, we should have our HSId
         role = new ReplicatedRole(hsId);
@@ -107,7 +108,25 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
                 null,
                 this);
         // This will invoke becomeLeader()
-        this.elector.start(true);
+        elector.start(true);
+
+        if (elector.isLeader()) {
+            // barrier to wait for all replicas to be ready
+            boolean success = false;
+            for (int ii = 0; ii < 4000; ii++) {
+                List<String> children = babySitter.lastSeenChildren();
+                if (children == null || children.size() < totalReplicasForPartition) {
+                    Thread.sleep(5);
+                } else {
+                    success = true;
+                    break;
+                }
+            }
+            if (!success) {
+                VoltDB.crashLocalVoltDB("Not all replicas for partition " +
+                        partitionId + " are ready in time", false, null);
+            }
+        }
     }
 
     public void shutdown() throws InterruptedException, KeeperException
@@ -278,7 +297,7 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
         babySitter = new BabySitter(messenger.getZK(),
                                     electionDirForPartition,
                                     membershipChangeHandler);
-        // TODO: it's not guaranteed that we'll have all the children at this time
+        // It's not guaranteed that we'll have all the children at this time
         membershipChangeHandler.run(babySitter.lastSeenChildren());
     }
 }

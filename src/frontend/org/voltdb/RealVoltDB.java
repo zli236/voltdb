@@ -77,7 +77,6 @@ import org.voltdb.compiler.deploymentfile.UsersType;
 import org.voltdb.dtxn.MailboxTracker;
 import org.voltdb.dtxn.MailboxUpdateHandler;
 import org.voltdb.dtxn.SiteTracker;
-import org.voltdb.dtxn.TransactionInitiator;
 import org.voltdb.export.ExportManager;
 import org.voltdb.fault.FaultDistributor;
 import org.voltdb.fault.FaultDistributorInterface;
@@ -547,7 +546,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback, Mailb
         for (Integer partition : partitions) {
             InitiatorMailbox mailbox = new InitiatorMailbox(m_messenger, partition);
             m_messenger.createMailbox(null, mailbox);
-            mailbox.start();
+            mailbox.start(ClusterConfig.replicaCountForpartition(topo, partition));
             mailboxes.put(partition, mailbox);
             registerInitiatorMailbox(mailbox.getHSId(), partition);
         }

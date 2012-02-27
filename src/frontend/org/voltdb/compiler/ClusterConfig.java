@@ -51,6 +51,23 @@ public class ClusterConfig
         return partitions;
     }
 
+    public static int replicaCountForpartition(JSONObject topo, int partitionId) throws JSONException
+    {
+        JSONArray parts = topo.getJSONArray("partitions");
+
+        for (int p = 0; p < parts.length(); p++) {
+            // have an object in the partitions array
+            JSONObject aPartition = parts.getJSONObject(p);
+            int pid = aPartition.getInt("partition_id");
+            JSONArray replicas = aPartition.getJSONArray("replicas");
+            if (pid == partitionId) {
+                return replicas.length();
+            }
+        }
+
+        return 0;
+    }
+
     public ClusterConfig(int hostCount, int sitesPerHost, int replicationFactor)
     {
         m_hostCount = hostCount;
