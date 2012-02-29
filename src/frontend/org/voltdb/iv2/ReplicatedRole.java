@@ -24,11 +24,9 @@ import org.voltdb.messaging.InitiateTaskMessage;
 
 /**
  * Replicated initiator role. It accepts transactions with pre-assigned
- * transaction IDs from the primary initiator, then it immediately acks the
- * transactions it has received to the primary. All new transactions are safe to
- * be executed upon reception. Responses of executed transactions are stored
- * until the primary says it's safe to discard. Responses are forwarded back to
- * the primary immediately on finish.
+ * transaction IDs from the primary initiator, then it immediately execute them.
+ * Executed transactions are stored until the primary says it's safe to discard.
+ * Responses are forwarded back to the primary immediately on finish.
  */
 public class ReplicatedRole implements InitiatorRole {
     private final long hsid;
@@ -83,15 +81,6 @@ public class ReplicatedRole implements InitiatorRole {
             inflight.offer(txn);
         }
         return txn;
-    }
-
-    /**
-     * Get the transaction ID of the last received transaction.
-     * @return last seen transaction ID, or -1 if none.
-     */
-    public long getLastSeenTxnId()
-    {
-        return lastSeenTxnId;
     }
 
     long getOldestInFlightTxnId()

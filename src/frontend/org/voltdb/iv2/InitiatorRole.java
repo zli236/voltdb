@@ -27,8 +27,9 @@ public interface InitiatorRole
     /**
      * Forward a new transaction.
      *
-     * If this is the primary initiator, the caller must synchronize on this to
-     * guarantee that the transactions will be queued in order.
+     * If this is the primary initiator, the caller must call this in a
+     * synchronized block to guarantee that the transactions will be queued in
+     * order.
      */
     public void offerInitiateTask(InitiateTaskMessage message);
 

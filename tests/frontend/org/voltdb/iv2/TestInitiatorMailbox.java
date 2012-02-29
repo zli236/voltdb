@@ -50,7 +50,6 @@ import org.voltdb.VoltTable.ColumnInfo;
 import org.voltdb.VoltType;
 import org.voltdb.VoltZK;
 import org.voltdb.client.ClientResponse;
-import org.voltdb.messaging.InitiateAckMessage;
 import org.voltdb.messaging.InitiateResponseMessage;
 import org.voltdb.messaging.InitiateTaskMessage;
 
@@ -180,49 +179,7 @@ public class TestInitiatorMailbox extends ZKTestBase {
     }
 
     @Test
-    public void testAck() throws Exception {
-        createElectionNodes(2, true);
-        mb.start(2);
-        generateTasks(true);
-
-        // no task until acked
-        assertNull(mb.recv());
-
-        // ack the first 1000
-        InitiateAckMessage ackMessage1 = new InitiateAckMessage(999);
-        ackMessage1.m_sourceHSId = 0;
-        mb.deliver(ackMessage1);
-
-        /*
-         * check if the execution site can get the transactions in the correct
-         * order
-         */
-        InitiateTaskMessage localTask;
-        long localTxnId = 0;
-        while ((localTask = (InitiateTaskMessage) mb.recv()) != null) {
-            assertEquals(localTxnId++, localTask.getTransactionId());
-        }
-        assertEquals(1000, localTxnId);
-
-        // ack the first 1000
-        InitiateAckMessage ackMessage2 = new InitiateAckMessage(2999);
-        ackMessage2.m_sourceHSId = 0;
-        mb.deliver(ackMessage2);
-
-        /*
-         * check if the execution site can get the transactions in the correct
-         * order
-         */
-        InitiateTaskMessage localTask2;
-        long localTxnId2 = 1000;
-        while ((localTask2 = (InitiateTaskMessage) mb.recv()) != null) {
-            assertEquals(localTxnId2++, localTask2.getTransactionId());
-        }
-        assertEquals(3000, localTxnId2);
-    }
-
-    @Test
-    public void testRespond() throws Exception {
+    public void testRespondAndTruncationPoint() throws Exception {
         createElectionNodes(2, true);
         mb.start(2);
         generateTasks(true);
@@ -244,10 +201,7 @@ public class TestInitiatorMailbox extends ZKTestBase {
             mb.deliver(remoteResponse);
         }
 
-        // ack all
-        InitiateAckMessage ackMessage = new InitiateAckMessage(2999);
-        ackMessage.m_sourceHSId = 0;
-        mb.deliver(ackMessage);
+        assertEquals(-1, ((PrimaryRole) mb.role).lastRespondedTxnId);
 
         // return all responses from local execution site
         InitiateTaskMessage localTask;
@@ -267,6 +221,8 @@ public class TestInitiatorMailbox extends ZKTestBase {
         for (InitiateResponseMessage resp : allValues) {
             assertTrue(resp.getTxnId() < 1000);
         }
+
+        assertEquals(999, ((PrimaryRole) mb.role).lastRespondedTxnId);
 
         // reset HostMessenger mock here so that we don't get previous stats
         reset(hm);
@@ -293,6 +249,8 @@ public class TestInitiatorMailbox extends ZKTestBase {
             assertTrue(Long.toString(resp.getTxnId()), resp.getTxnId() >= 1000);
             assertTrue(resp.getTxnId() < 3000);
         }
+
+        assertEquals(2999, ((PrimaryRole) mb.role).lastRespondedTxnId);
     }
 
     @Test
@@ -357,21 +315,6 @@ public class TestInitiatorMailbox extends ZKTestBase {
             return;
         }
         fail("Should throw an exception earlier");
-    }
-
-    @Test
-    public void testReplicaAck() throws Exception {
-        createElectionNodes(2, false);
-        mb.start(2);
-        generateTasks(false);
-
-        /*
-         * check if the last ack received from the replica is the last transaction
-         */
-        ArgumentCaptor<InitiateAckMessage> captor = ArgumentCaptor.forClass(InitiateAckMessage.class);
-        verify(hm, atLeastOnce()).send(anyLong(), captor.capture());
-        List<InitiateAckMessage> messages = captor.getAllValues();
-        assertEquals(2999, messages.get(messages.size() - 1).getTransactionId());
     }
 
     @Test

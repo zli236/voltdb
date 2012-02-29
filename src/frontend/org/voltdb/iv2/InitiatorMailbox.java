@@ -25,7 +25,6 @@ import org.voltcore.agreement.BabySitter;
 import org.voltcore.agreement.BabySitter.Callback;
 import org.voltcore.agreement.LeaderElector;
 import org.voltcore.agreement.LeaderNoticeHandler;
-import org.voltcore.agreement.ZKUtil;
 import org.voltcore.messaging.HostMessenger;
 import org.voltcore.messaging.Mailbox;
 import org.voltcore.messaging.MessagingException;
@@ -35,7 +34,6 @@ import org.voltcore.utils.Pair;
 import org.voltdb.VoltDB;
 import org.voltdb.VoltZK;
 
-import org.voltdb.messaging.InitiateAckMessage;
 import org.voltdb.messaging.InitiateResponseMessage;
 import org.voltdb.messaging.InitiateTaskMessage;
 
@@ -50,7 +48,6 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
     private final HostMessenger messenger;
     private long hsId;
 
-    // for now, there are only primary initiatiors.
     InitiatorRole role;
     private LeaderElector elector;
     // only primary initiator has the following two set
@@ -163,15 +160,7 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
                 if (elector.isLeader()) {
                     replicateInitiation((InitiateTaskMessage)message);
                 }
-                else {
-                    ackInitiation();
-                }
             }
-        }
-        else if (message instanceof InitiateAckMessage) {
-            // Only primary receives this type of messages
-            InitiateAckMessage ackMessage = (InitiateAckMessage) message;
-            ((PrimaryRole) role).ack(ackMessage.m_sourceHSId, ackMessage.getTransactionId());
         }
         else if (message instanceof InitiateResponseMessage) {
             InitiateResponseMessage response = (InitiateResponseMessage)message;
@@ -206,31 +195,6 @@ public class InitiatorMailbox implements Mailbox, LeaderNoticeHandler
             }
             catch (MessagingException e) {
                 hostLog.error("Failed to replicate initiate task.", e);
-            }
-        }
-    }
-
-    /**
-     * Send initiate ack message to the primary initiator. Only initiator
-     * replicas have to do this.
-     */
-    private void ackInitiation()
-    {
-        long nextToAck = ((ReplicatedRole) role).getLastSeenTxnId();
-        if (nextToAck != -1) {
-            InitiateAckMessage ackMessage = new InitiateAckMessage(nextToAck);
-            String leader = elector.leader();
-            if (leader != null) {
-                try {
-                    long HSId = Long.parseLong(ZKUtil.basename(leader).split("_")[0]);
-                    send(HSId, ackMessage);
-                } catch (NumberFormatException e) {
-                    hostLog.error("Unable to get the HSId of the leader " + leader);
-                    return;
-                } catch (MessagingException e) {
-                    hostLog.error("Failed to send ack message to leader", e);
-                    return;
-                }
             }
         }
     }
