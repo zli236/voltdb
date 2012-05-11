@@ -88,7 +88,6 @@ public class Iv2TestTransactionTaskQueue extends TestCase
     {
         teststorage.addLast(task);
         dut.offer(task);
-        dut.flush();
     }
 
     @Test
@@ -146,8 +145,10 @@ public class Iv2TestTransactionTaskQueue extends TestCase
         assertEquals(blocked.size() + 1, dut.size());
         // DONE!  Should flush everything to the next blocker
         block.getTransactionState().setDone();
-        int offered = dut.flush();
-        assertEquals(blocked.size(), offered);
+        while(dut.size() > 1)
+        {
+            Thread.yield();
+        }
         assertEquals(1, dut.size());
         expected_order.addAll(blocked);
 

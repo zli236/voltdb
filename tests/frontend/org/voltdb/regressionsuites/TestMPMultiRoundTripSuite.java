@@ -166,6 +166,7 @@ public class TestMPMultiRoundTripSuite extends RegressionSuite {
 
     public void testSimultaneousMultiAndSinglePartTxns() throws Exception
     {
+        int test_size = 10000;
         final Client client = this.getClient();
         ProcedureCallback callback = new ProcedureCallback() {
             @Override
@@ -176,16 +177,14 @@ public class TestMPMultiRoundTripSuite extends RegressionSuite {
                 }
             }
         };
-        client.callProcedure(callback, "MultiRoundMixReadsAndWrites", 10, 20000);
-        //client.callProcedure("MultiRoundMixReadsAndWrites", 1000, 20000);
-        for (int i = 0; i < 10; i++) {
-            //client.callProcedure("UpdateP1SP", i);
+        client.callProcedure(callback, "MultiRoundMixReadsAndWrites", test_size, test_size * 2);
+        for (int i = 0; i < test_size; i++) {
             client.callProcedure(callback, "UpdateP1SP", i);
         }
         client.drain();
         ClientResponse resp2 = client.callProcedure("GetP1");
         ClientResponse resp = client.callProcedure("SumP1");
-        assertEquals(resp2.getResults()[0].toString(), 10 * 2, resp.getResults()[0].asScalarLong());
+        assertEquals(resp2.getResults()[0].toString(), test_size * 2, resp.getResults()[0].asScalarLong());
     }
 
 

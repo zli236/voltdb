@@ -20,6 +20,7 @@ package org.voltdb.dtxn;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 
 import org.voltcore.messaging.Mailbox;
 import org.voltcore.messaging.TransactionInfoBaseMessage;
@@ -48,6 +49,7 @@ public abstract class TransactionState extends OrderableTransaction  {
     protected final Mailbox m_mbox;
     protected final SiteTransactionConnection m_site;
     volatile protected boolean m_done = false;
+    protected CountDownLatch m_doneLatch = new CountDownLatch(1);
     protected long m_beginUndoToken;
     volatile public boolean m_needsRollback = false;
     protected ClientResponseImpl m_response = null;
@@ -83,9 +85,14 @@ public abstract class TransactionState extends OrderableTransaction  {
         m_beginUndoToken = ExecutionSite.kInvalidUndoToken;
     }
 
-    // Assume that done-ness is a latch.
+    public CountDownLatch getDoneLatch()
+    {
+        return m_doneLatch;
+    }
+
     public void setDone() {
         m_done = true;
+        m_doneLatch.countDown();
     }
 
     final public boolean isDone() {
