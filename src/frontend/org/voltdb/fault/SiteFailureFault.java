@@ -23,10 +23,10 @@ import org.voltcore.utils.CoreUtils;
 
 public class SiteFailureFault extends VoltFault
 {
-    public static int SITE_FAILURE_FOREIGN_HOST = 0;
-    public static int SITE_FAILURE_CATALOG = 1;
-    public static int SITE_FAILURE_INITIATOR = 2;
-    public static int SITE_FAILURE_EXECUTION_SITE = 3;
+    public static final int SITE_FAILURE_FOREIGN_HOST = 0;
+    public static final int SITE_FAILURE_CATALOG = 1;
+    public static final int SITE_FAILURE_INITIATOR = 2;
+    public static final int SITE_FAILURE_EXECUTION_SITE = 3;
 
 
     public SiteFailureFault(List<Long> siteIds)

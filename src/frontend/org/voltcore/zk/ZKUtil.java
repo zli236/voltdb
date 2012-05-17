@@ -334,7 +334,9 @@ public class ZKUtil {
 
         /** @returns null if the timeout expired. */
         public WatchedEvent get(long timeout, TimeUnit unit) throws InterruptedException {
-            done.await(timeout, unit);
+            boolean countedDown = done.await(timeout, unit);
+            // Make findbugs happy with safe assertion
+            assert countedDown || event == null;
             return event;
         }
     }

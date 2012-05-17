@@ -184,7 +184,7 @@ public class StoredProcedureInvocation implements FastSerializable, JSONString {
             buf.putLong(originalTxnId);
         }
         buf.putInt(procName.length());
-        buf.put(procName.getBytes());
+        buf.put(procName.getBytes("UTF-8"));
         buf.putLong(clientHandle);
         if (serializedParams != null)
         {

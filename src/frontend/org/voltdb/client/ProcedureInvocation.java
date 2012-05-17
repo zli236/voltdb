@@ -70,7 +70,10 @@ public class ProcedureInvocation {
     public int getSerializedSize() {
         try {
             m_procNameBytes = m_procName.getBytes("UTF-8");
-        } catch (Exception e) {/*No UTF-8? Really?*/}
+        } catch (Exception e) {
+            /*No UTF-8? Really?*/
+            e.printStackTrace();
+        }
         int size =
             1 + (m_type == ProcedureInvocationType.REPLICATED ? 8 : 0) +
             m_procNameBytes.length + 4 + 8 + m_parameters.getSerializedSize();

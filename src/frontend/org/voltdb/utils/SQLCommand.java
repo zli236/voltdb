@@ -492,8 +492,13 @@ public class SQLCommand
                     {
                         if (IsNull.matcher(param).matches())
                             objectParams[i] = VoltType.NULL_TIMESTAMP;
-                        else
-                            objectParams[i] = DateParser.parse(param);
+                        else {
+                            // DateParser is stateful
+                            synchronized (DateParser) {
+                                objectParams[i] = DateParser.parse(param);
+                            }
+                        }
+
                     }
                     else if (paramType.equals("statisticscomponent"))
                     {

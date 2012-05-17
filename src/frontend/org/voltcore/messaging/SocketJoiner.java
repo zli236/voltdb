@@ -369,6 +369,8 @@ public class SocketJoiner {
             try {
                 m_selector.close();
             } catch (IOException e) {
+            } catch (Exception e) {
+                e.printStackTrace();
             }
             m_selector = null;
         }
@@ -554,7 +556,9 @@ public class SocketJoiner {
         if (m_selector != null) {
             try {
                 m_selector.close();
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
             m_selector = null;
         }
     }

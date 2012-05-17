@@ -18,6 +18,7 @@
 package org.voltdb.exceptions;
 
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.util.logging.Logger;
 
@@ -158,7 +159,14 @@ public class ConstraintFailureException extends SQLException {
         super.p_serializeToBuffer(b);
         b.putInt(type.getValue());
         b.putInt(tableName.length());
-        b.put(tableName.getBytes());
+        try {
+            b.put(tableName.getBytes("UTF-8"));
+        } catch (UnsupportedEncodingException e) {
+            // Shouldn't get here since UTF-8 should be available. Since we're in an exception
+            // just squeeze something out of the table name.
+            e.printStackTrace();
+            b.put(tableName.getBytes());
+        }
         b.putInt(buffer.capacity());
         buffer.rewind();
         b.put(buffer);
