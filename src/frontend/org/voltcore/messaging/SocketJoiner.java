@@ -218,7 +218,7 @@ public class SocketJoiner {
      * Bind to the internal interface if one was specified,
      * otherwise bind on all interfaces. The leader won't invoke this.
      */
-    private void doBind() throws Exception {
+    private void doBind() throws IOException {
         LOG.debug("Creating listener socket");
         try {
             m_selector = Selector.open();
@@ -239,7 +239,7 @@ public class SocketJoiner {
             listenerSocket.socket().bind(inetsockaddr);
             listenerSocket.configureBlocking(false);
             m_listenerSockets.add(listenerSocket);
-        } catch (Exception e) {
+        } catch (IOException e) {
             /*
              * If we bound to the leader address, the internal interface address  might not
              * bind if it is all interfaces
@@ -333,7 +333,7 @@ public class SocketJoiner {
      * new nodes into the cluster. This loop accepts the new socket
      * and passes it off the HostMessenger via the JoinHandler interface
      */
-    private void runPrimary() throws Exception {
+    private void runPrimary() throws InterruptedException, IOException {
         try {
             // start the server socket on the right interface
             doBind();
@@ -363,13 +363,14 @@ public class SocketJoiner {
             for (ServerSocketChannel ssc : m_listenerSockets) {
                 try {
                     ssc.close();
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
             m_listenerSockets.clear();
             try {
                 m_selector.close();
             } catch (IOException e) {
-            } catch (Exception e) {
                 e.printStackTrace();
             }
             m_selector = null;
