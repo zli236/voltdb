@@ -544,6 +544,8 @@ VoltDBEngine::processCatalogDeletes(int64_t timestamp )
     m_catalog->getDeletedPaths(deletions);
 
     BOOST_FOREACH(string path, deletions) {
+        VOLT_TRACE("delete path:");
+
         map<string, CatalogDelegate*>::iterator pos = m_catalogDelegates.find(path);
         if (pos == m_catalogDelegates.end()) {
            continue;
@@ -633,8 +635,8 @@ VoltDBEngine::processCatalogAdditions(bool addAll, int64_t timestamp)
     {
         // get the catalog's table object
         catalog::Table *catalogTable = catTableIter->second;
-
         if (addAll || catalogTable->wasAdded()) {
+            VOLT_TRACE("add a completely new table...");
 
             //////////////////////////////////////////
             // add a completely new table
@@ -745,6 +747,7 @@ VoltDBEngine::processCatalogAdditions(bool addAll, int64_t timestamp)
                 }
 
                 if (!found) {
+                    VOLT_TRACE("create and add the index...");
                     // create and add the index
                     TableIndexScheme scheme;
                     bool success = TableCatalogDelegate::getIndexScheme(*catalogTable,
@@ -805,20 +808,13 @@ VoltDBEngine::processCatalogAdditions(bool addAll, int64_t timestamp)
             ///////////////////////////////////////////////////
 
             vector<catalog::MaterializedViewInfo*> survivingInfos;
-            vector<catalog::MaterializedViewInfo*> changingInfos;
             vector<MaterializedViewMetadata*> survivingViews;
-            vector<MaterializedViewMetadata*> changingViews;
             vector<MaterializedViewMetadata*> obsoleteViews;
 
             const catalog::CatalogMap<catalog::MaterializedViewInfo> & views = catalogTable->views();
             persistenttable->segregateMaterializedViews(views.begin(), views.end(),
                                                         survivingInfos, survivingViews,
-                                                        changingInfos, changingViews,
                                                         obsoleteViews);
-
-            BOOST_FOREACH(MaterializedViewMetadata * toDrop, obsoleteViews) {
-                persistenttable->dropMaterializedView(toDrop);
-            }
 
             // This process temporarily duplicates the materialized view definitions and their
             // target table reference counts for all the right materialized view tables,
@@ -854,6 +850,11 @@ VoltDBEngine::processCatalogAdditions(bool addAll, int64_t timestamp)
                 // This is not a leak -- the view metadata is self-installing into the new table.
                 // Also, it guards its targetTable from accidental deletion with a refcount bump.
                 new MaterializedViewMetadata(persistenttable, targetTable, currInfo);
+                obsoleteViews.push_back(survivingViews[ii]);
+            }
+
+            BOOST_FOREACH(MaterializedViewMetadata * toDrop, obsoleteViews) {
+                persistenttable->dropMaterializedView(toDrop);
             }
         }
     }
