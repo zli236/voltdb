@@ -791,6 +791,8 @@ bool VoltDBIPC::fragmentProgressUpdate(int32_t batchIndex,
 
     *reinterpret_cast<int64_t*>(&message[offset]) = htonll(tuplesFound);
 
+    writeOrDie(m_fd, (unsigned char*)message, offset+8);
+
     int32_t length;
     ssize_t bytes = read(m_fd, &length, sizeof(int32_t));
     if (bytes != sizeof(int32_t)) {
@@ -1319,7 +1321,7 @@ int main(int argc, char **argv) {
     /* max message size that can be read from java */
     int max_ipc_message_size = (1024 * 1024 * 2);
 
-    int port = 0;
+    int port = 10000;
 
     // allow called to override port with the first argument
     if (argc == 2) {

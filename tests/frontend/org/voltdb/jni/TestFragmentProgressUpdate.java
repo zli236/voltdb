@@ -45,33 +45,33 @@ import org.voltdb.utils.CatalogUtil;
 import org.voltdb.utils.Encoder;
 
 public class TestFragmentProgressUpdate extends TestCase {
-    public void testJNIFragmentProgressUpdate() throws Exception {
-        m_ee = new ExecutionEngineJNI(
-                CLUSTER_ID,
-                NODE_ID,
-                0,
-                0,
-                "",
-                100,
-                HashinatorType.LEGACY,
-                LegacyHashinator.getConfigureBytes(1));
-        testFragmentProgressUpdate(m_ee);
-    }
-
-//    public void testIPCFragmentProgressUpdate() throws Exception {
-//        m_ee = new ExecutionEngineIPC(
+//    public void testJNIFragmentProgressUpdate() throws Exception {
+//        m_ee = new ExecutionEngineJNI(
 //                CLUSTER_ID,
 //                NODE_ID,
 //                0,
 //                0,
 //                "",
 //                100,
-//                BackendTarget.NATIVE_EE_IPC,
-//                10000,
 //                HashinatorType.LEGACY,
 //                LegacyHashinator.getConfigureBytes(1));
 //        testFragmentProgressUpdate(m_ee);
 //    }
+
+    public void testIPCFragmentProgressUpdate() throws Exception {
+        m_ee = new ExecutionEngineIPC(
+                CLUSTER_ID,
+                NODE_ID,
+                0,
+                0,
+                "",
+                100,
+                BackendTarget.NATIVE_EE_IPC,
+                10000,
+                HashinatorType.LEGACY,
+                LegacyHashinator.getConfigureBytes(1));
+        testFragmentProgressUpdate(m_ee);
+    }
 
     public void testFragmentProgressUpdate(ExecutionEngine ee) throws Exception {
         TPCCProjectBuilder builder = new TPCCProjectBuilder();

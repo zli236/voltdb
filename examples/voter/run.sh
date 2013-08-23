@@ -63,7 +63,7 @@ function server() {
     if [ ! -f $APPNAME.jar ]; then catalog; fi
     # run the server
     $VOLTDB create catalog $APPNAME.jar deployment deployment.xml \
-        license $LICENSE host $HOST
+        license $LICENSE host $HOST ipc ipcports 10000
 }
 
 # run the voltdb server locally
